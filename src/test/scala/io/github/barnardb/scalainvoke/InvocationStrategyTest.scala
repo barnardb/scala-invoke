@@ -115,35 +115,35 @@ class InvocationStrategyTest extends FunSuite {
     }
   }
 
-  test("constructs objects") {
+  test("lifts class constructors") {
     import TestExtractors._
-    val invoker = strategy.constructorInvoker[DemoClass]
+    val invoker = strategy.liftConstructor[DemoClass]
 
     assertResult("[yays] First: a, second: 1") {
       invoker(Map("id" -> "yays")).foo("a", 1)
     }
   }
 
-  test("constructs objects from primary constructor in the presence of multiple constructors") {
+  test("selects the first constructor for lifting in the presence of multiple constructors") {
     class MultiConstruct(val a: String) {
       def this(b: String, c: String) = this(s"$b $c")
     }
 
     import TestExtractors._
-    val invoker = strategy.constructorInvoker[MultiConstruct]
+    val invoker = strategy.liftConstructor[MultiConstruct]
 
     assertResult("A") {
       invoker(Map("a" -> "A", "b" -> "B", "c" -> "C")).a
     }
   }
 
-  test("constructs objects from primary constructor in the presence of private primary constructor") {
+  test("skips inaccessible constructors when selecting which constructor to lift") {
     class MultiConstruct private (val a: String) {
       def this(b: String, c: String) = this(s"$b $c")
     }
 
     import TestExtractors._
-    val invoker = strategy.constructorInvoker[MultiConstruct]
+    val invoker = strategy.liftConstructor[MultiConstruct]
 
     assertResult("B C") {
       invoker(Map("a" -> "A", "b" -> "B", "c" -> "C")).a

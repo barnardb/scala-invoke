@@ -49,6 +49,22 @@ object InvocationStrategy {
         createLiftedFunction[Environment](function.tpe.typeArgs.last, OwnerChainCorrector.splice(c)(unwrappedFunction), List(extractFunctionParamSymbols(unwrappedFunction)))
       case t => c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
     }
+
+    protected def firstAccessibleConstructorIn(tpe: Type): MethodSymbol = {
+      val constructors = tpe.members.sorted.filter(_.isConstructor).map(_.asMethod)
+      constructors
+        .find(m => c.typecheck(q"new $tpe(...${m.paramLists.map(_.map(p => q"null.asInstanceOf[${p.typeSignature}]"))})", silent = true) != EmptyTree)
+        .getOrElse(c.abort(c.enclosingPosition, s"None of the ${constructors.length} constructor(s) in $tpe seem to be accessible"))
+    }
+
+    def liftConstructorImpl[Environment: WeakTypeTag, A: WeakTypeTag]: Expr[Environment => A] = c.Expr {
+      val A = weakTypeOf[A]
+      createLiftedFunction[Environment](
+        returnType     = A,
+        function       = Select(New(TypeTree(A)), termNames.CONSTRUCTOR),
+        parameterLists = firstAccessibleConstructorIn(A).paramLists
+      )
+    }
   }
 }
 
@@ -80,10 +96,11 @@ abstract class InvocationStrategy[Environment] { is =>
   def lift[R](function: FunctionReturning[R]): Environment => R = macro InvocationStrategy.MacroImplementations.liftImpl[Environment, R]
 
   /**
-   * Builds a function invoker than calls the first accessible constructor of type [[A]]
+   * Lifts the first accessible constructor for class [[A]] into a function that takes an [[Environment]],
+   * uses the strategy to extract arguments, invokes the constructor, and returns the new instance.
    */
-  def constructorInvoker[A]: Environment => A =
-    macro ConstructorInvoker.MacroImplementations.derive[Environment, A]
+  def liftConstructor[A]: Environment => A =
+    macro InvocationStrategy.MacroImplementations.liftConstructorImpl[Environment, A]
 
   def method[Target]: MethodInvocationStrategy[Target] = new MethodInvocationStrategy[Target](this)
   final class MethodInvocationStrategy[Target](val strategy: is.type) {
