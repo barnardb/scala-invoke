@@ -6,9 +6,9 @@ object ConstructorInvoker {
   class MacroImplementations(override val c: blackbox.Context) extends FunctionInvoker.MacroImplementations(c) {
     import c.universe._
 
-    def derive[Environment: WeakTypeTag, A: WeakTypeTag]: Expr[FunctionInvoker[Environment, A]] = c.Expr {
+    def derive[Environment: WeakTypeTag, A: WeakTypeTag]: Expr[Environment => A] = c.Expr {
       val A = weakTypeOf[A]
-      instantiateFunctionInvoker[Environment](
+      createStrategicFunction[Environment](
         returnType     = A,
         function       = Select(New(TypeTree(A)), termNames.CONSTRUCTOR),
         parameterLists = firstAccessibleConstructorIn(A).paramLists

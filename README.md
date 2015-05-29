@@ -8,8 +8,6 @@ with compile-time verification that you have an appropriate strategy for derivin
 Future Work
 -----------
 
-- The FunctionInvoker and MethodInvoker classes aren't useful. They should be replaced with Function1 and Function2.
-
 - It should be possible to build function invokers where some parameters are manually specified.
 
 - It should be possible to split parameter extraction and invocation into two phases,

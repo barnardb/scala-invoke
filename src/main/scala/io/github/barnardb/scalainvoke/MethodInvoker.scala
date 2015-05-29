@@ -2,17 +2,6 @@ package io.github.barnardb.scalainvoke
 
 import scala.reflect.macros.{blackbox, whitebox}
 
-abstract class MethodInvoker[Target, Environment, +Result] { methodInvoker =>
-  def apply(target: Target, context: Environment): Result
-
-  def bind(target: Target): FunctionInvoker[Environment, Result] =
-    new FunctionInvoker[Environment, Result] {
-      override def apply(environment: Environment): Result = methodInvoker(target, environment)
-    }
-
-//  def bindTargetFromEnvironment(targetName: Option[String]): FunctionInvoker[Environment, Result]
-}
-
 object MethodInvoker {
 
   class MacroImplementations(override val c: blackbox.Context) extends InvocationStrategy.MacroImplementations(c) {
@@ -23,7 +12,7 @@ object MethodInvoker {
       val Target = weakTypeOf[Target]
       val Environment = weakTypeOf[Environment]
       q"""
-        new ${appliedType(symbolOf[MethodInvoker[_, _, _]], Target, Environment, method.returnType)} {
+        new ${appliedType(symbolOf[(_, _) => _], Target, Environment, method.returnType)} {
           override def apply(target: $Target, environment: $Environment): ${method.returnType} =
             target.$method(...${method.paramLists.map(_.map(extractParameter[Environment]))})
         }
