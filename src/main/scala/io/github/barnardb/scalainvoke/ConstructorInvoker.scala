@@ -3,12 +3,12 @@ package io.github.barnardb.scalainvoke
 import scala.reflect.macros.blackbox
 
 object ConstructorInvoker {
-  class MacroImplementations(override val c: blackbox.Context) extends FunctionInvoker.MacroImplementations(c) {
+  class MacroImplementations(override val c: blackbox.Context) extends InvocationStrategy.MacroImplementations(c) {
     import c.universe._
 
     def derive[Environment: WeakTypeTag, A: WeakTypeTag]: Expr[Environment => A] = c.Expr {
       val A = weakTypeOf[A]
-      createStrategicFunction[Environment](
+      createLiftedFunction[Environment](
         returnType     = A,
         function       = Select(New(TypeTree(A)), termNames.CONSTRUCTOR),
         parameterLists = firstAccessibleConstructorIn(A).paramLists

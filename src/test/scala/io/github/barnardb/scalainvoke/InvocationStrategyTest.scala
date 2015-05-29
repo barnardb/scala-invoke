@@ -19,10 +19,9 @@ class InvocationStrategyTest extends FunSuite {
 
   val strategy = new ImplicitExtractorInvocationStrategy[Map[String, String]]
 
-
-  test("invokes inline function literals") {
+  test("lifts inline function literals") {
     import TestExtractors._
-    val invoker = strategy.functionInvoker((first: String, second: Int) => s"First: $first, second: $second")
+    val invoker = strategy.lift((first: String, second: Int) => s"First: $first, second: $second")
 
     val context = Map("first" -> "a", "second" -> "42")
 
@@ -42,71 +41,71 @@ class InvocationStrategyTest extends FunSuite {
 //    }
 //  }
 
-  test("invokes eta-expanded local methods") {
+  test("lifts eta-expanded local methods") {
     def localMethod(first: String, second: Int): String = s"First: $first, second: $second"
 
     import TestExtractors._
-    val invoker = strategy.functionInvoker(localMethod _)
+    val invoker = strategy.lift(localMethod _)
 
     assertResult("First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
     }
   }
 
-  test("invokes eta-expanded methods on class instances") {
+  test("lifts eta-expanded methods on class instances") {
     import TestExtractors._
     val instance = new DemoClass("hi")
-    val invoker = strategy.functionInvoker(instance.foo _)
+    val invoker = strategy.lift(instance.foo _)
 
     assertResult("[hi] First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
     }
   }
 
-  test("invokes eta-expanded methods on Scala objects") {
+  test("lifts eta-expanded methods on Scala objects") {
     object bar {
       def foo(first: String, second: Int): String = s"First: $first, second: $second"
     }
 
     import TestExtractors._
-    val invoker = strategy.functionInvoker(bar.foo _)
+    val invoker = strategy.lift(bar.foo _)
 
     assertResult("First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
     }
   }
 
-  test("invokes eta-expanded methods on inline class instances") {
+  test("lifts eta-expanded methods on inline class instances") {
     import TestExtractors._
-    val invoker = strategy.functionInvoker(new DemoClass("hi").foo _)
+    val invoker = strategy.lift(new DemoClass("hi").foo _)
 
     assertResult("[hi] First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
     }
   }
 
-  test("invokes eta-expanded methods on class instances returned from method calls") {
+  test("lifts eta-expanded methods on class instances returned from method calls") {
     import TestExtractors._
     def instance = new DemoClass("hi")
-    val invoker = strategy.functionInvoker(instance.foo _)
+    val invoker = strategy.lift(instance.foo _)
 
     assertResult("[hi] First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
     }
   }
 
-  test("invokes function literals with type ascriptions") {
+  test("lifts function literals with type ascriptions") {
     import TestExtractors._
-    val invoker = strategy.functionInvoker(((x: String) => x): String => String)
+    val invoker = strategy.lift(((x: String) => x): String => String)
 
     assertResult("X") {
       invoker(Map("x" -> "X")): String
     }
   }
 
-  test("invokes function literals defined in a block that reference a lazy val in the block (i.e., prevents owner chain corruption without taking untypecheck shortcuts)") {
+  test("lifts function literals defined in a block that reference a lazy val in the block (i.e., prevents owner chain corruption without taking untypecheck shortcuts)") {
     import TestExtractors._
-    val invoker = strategy.functionInvoker({
+    val invoker = strategy.lift({
       lazy val tricksy: String = "I'm forcing you to deal with owner chain corruption without resorting to untypecheck"
       (x: String) => x + tricksy
     })

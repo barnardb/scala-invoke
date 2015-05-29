@@ -20,5 +20,3 @@ Future Work
 
 - More concrete invocation strategies should be provided,
   both for direct use and to demonstrate how users might create their own strategies.
-  
-- Use FunctionReturning to simplify InvocationStrategy.functionInvoker declaration.

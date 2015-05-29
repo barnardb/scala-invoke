@@ -2,22 +2,52 @@ package io.github.barnardb.scalainvoke
 
 import scala.reflect.macros.blackbox
 
+import io.github.barnardb.scalainvoke.macroutil.OwnerChainCorrector
+
 object InvocationStrategy {
   class MacroImplementations(val c: blackbox.Context) {
     import c.universe._
 
-    def findStrategy[Environment]: Expr[InvocationStrategy[Environment]] =
+    protected def findStrategy[Environment]: Expr[InvocationStrategy[Environment]] =
       if (c.prefix.actualType <:< typeOf[InvocationStrategy[_]]) c.Expr(c.prefix.tree)
       else c.prefix.tree.symbol.typeSignature.member(TermName("strategy")) match {
         case NoSymbol => c.abort(c.enclosingPosition, s"Can't find the InvocationStrategy to use (prefix symbol ${c.prefix.tree.symbol}, sig: ${c.prefix.tree.symbol.typeSignature}})")
         case strategy => c.Expr(q"${c.prefix}.$strategy")
       }
 
-    def extractParameter[Environment](parameter: Symbol)(implicit strategy: Expr[InvocationStrategy[Environment]]): Tree = {
+    protected def extractParameter[Environment](parameter: Symbol)(implicit strategy: Expr[InvocationStrategy[Environment]]): Tree = {
       val extractionMethod =
         if (parameter.isImplicit) TermName("extractImplicit")
         else TermName("extract")
       q"$strategy.$extractionMethod[${parameter.typeSignature}](environment, ${parameter.name.toString})"
+    }
+
+    protected def extractFunctionParamSymbols(tree: Tree): List[Symbol] = tree match {
+      case Function(params, _) => params.map(_.symbol)
+      case Block(_, expr)      => extractFunctionParamSymbols(expr)
+      case Typed(expr, _)      => extractFunctionParamSymbols(expr)
+      case Ident(_)            => c.abort(tree.pos, s"Can't unwrap a function from ${showRaw(tree)}")
+    }
+
+    protected def createLiftedFunction[Environment: WeakTypeTag](returnType: Type, function: Tree, parameterLists: List[List[Symbol]]): Tree = {
+      implicit val strategy = findStrategy[Environment]
+      val Environment = weakTypeOf[Environment]
+      q"""
+        new ${appliedType(symbolOf[_ => _], Environment, returnType)} {
+          override def apply(environment: $Environment): $returnType =
+            $function(...${parameterLists.map(_.map(extractParameter[Environment]))})
+        }
+      """
+    }
+
+    def liftImpl[Environment: WeakTypeTag, R: WeakTypeTag](function: Tree): Tree = function match {
+      case Block(stats, expr) =>
+        import c.internal._, decorators._
+        val liftedExpr = c.typecheck(liftImpl[Environment, R](expr))
+        Block(stats, liftedExpr) setType liftedExpr.tpe
+      case Apply(TypeApply(Select(Select(This(TypeName("scalainvoke")), TermName("FunctionReturning")), TermName("apply")), List(_)), List(unwrappedFunction)) =>
+        createLiftedFunction[Environment](function.tpe.typeArgs.last, OwnerChainCorrector.splice(c)(unwrappedFunction), List(extractFunctionParamSymbols(unwrappedFunction)))
+      case t => c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
     }
   }
 }
@@ -43,31 +73,11 @@ abstract class InvocationStrategy[Environment] { is =>
   */
 
   /**
-   * These methods build function invokers for the given function
-   * @tparam Result the function's result type
+   * Lifts a function into one that takes an [[Environment]], uses the strategy to extract arguments,
+   * invokes the original underlying function, and returns the result.
+   * @tparam R the function's result type
    */
-  def functionInvoker[Result](function: (_) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
-  def functionInvoker[Result](function: (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => Result): Environment => Result = macro FunctionInvoker.MacroImplementations.deriveInvoker[Environment]
+  def lift[R](function: FunctionReturning[R]): Environment => R = macro InvocationStrategy.MacroImplementations.liftImpl[Environment, R]
 
   /**
    * Builds a function invoker than calls the first accessible constructor of type [[A]]
