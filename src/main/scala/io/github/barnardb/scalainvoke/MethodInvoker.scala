@@ -24,7 +24,7 @@ object MethodInvoker {
       instantiateInvoker[Target, Environment](methodSelection.symbol.asMethod)
     }
 
-    def deriveFromEtaExpansionWithFunctionReturning[Target: WeakTypeTag, Environment: WeakTypeTag](prototype: Tree): Tree = {
+    def liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target: WeakTypeTag, Environment: WeakTypeTag](prototype: Tree): Tree = {
       val Function(List(_), Apply(_, List(Block(List(), Function(_, Apply(methodSelection, _)))))) = prototype
       instantiateInvoker[Target, Environment](methodSelection.symbol.asMethod)
     }
