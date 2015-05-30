@@ -106,8 +106,8 @@ abstract class InvocationStrategy[Environment] { is =>
   def liftConstructor[T]: Environment => T =
     macro InvocationStrategy.MacroImplementations.liftConstructorImpl[Environment, T]
 
-  def method[Target]: MethodInvocationStrategy[Target] = new MethodInvocationStrategy[Target](this)
-  final class MethodInvocationStrategy[Target](val strategy: is.type) {
+  def method[Target]: MethodLifter[Target] = new MethodLifter[Target](this)
+  final class MethodLifter[Target](val strategy: is.type) {
     /**
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
      */
