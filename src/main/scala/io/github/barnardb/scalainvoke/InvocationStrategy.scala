@@ -29,25 +29,22 @@ object InvocationStrategy {
       case Ident(_)            => c.abort(tree.pos, s"Can't unwrap a function from ${showRaw(tree)}")
     }
 
-    protected def createLiftedFunction[Environment: WeakTypeTag](returnType: Type, function: Tree, parameterLists: List[List[Symbol]]): Tree = {
+    protected def createLiftedFunction[Environment: WeakTypeTag, R: WeakTypeTag](function: Tree, parameterLists: List[List[Symbol]]): Expr[Environment => R] = c.Expr {
       implicit val strategy = findStrategy[Environment]
-      val Environment = weakTypeOf[Environment]
-      q"""
-        new ${appliedType(symbolOf[_ => _], Environment, returnType)} {
-          override def apply(environment: $Environment): $returnType =
-            $function(...${parameterLists.map(_.map(extractParameter[Environment]))})
-        }
-      """
+      c.typecheck(
+        tree = q"(environment: ${weakTypeOf[Environment]}) => $function(...${parameterLists.map(_.map(extractParameter[Environment]))})",
+        pt = weakTypeOf[Environment => R]
+      )
     }
 
-    def liftImpl[Environment: WeakTypeTag, R: WeakTypeTag](function: Tree): Tree = function match {
+    def liftImpl[Environment: WeakTypeTag, R: WeakTypeTag](function: Tree): Expr[Environment => R] = function match {
       case Block(stats, expr) =>
         import c.internal._, decorators._
-        val liftedExpr = c.typecheck(liftImpl[Environment, R](expr))
-        Block(stats, liftedExpr) setType liftedExpr.tpe
+        c.Expr(Block(stats, liftImpl[Environment, R](expr).tree) setType weakTypeOf[Environment => R])
       case Apply(TypeApply(Select(Select(This(TypeName("scalainvoke")), TermName("FunctionReturning")), TermName("apply")), List(_)), List(unwrappedFunction)) =>
-        createLiftedFunction[Environment](function.tpe.typeArgs.last, OwnerChainCorrector.splice(c)(unwrappedFunction), List(extractFunctionParamSymbols(unwrappedFunction)))
-      case t => c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
+        createLiftedFunction[Environment, R](OwnerChainCorrector.splice(c)(unwrappedFunction), List(extractFunctionParamSymbols(unwrappedFunction)))
+      case t =>
+        c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
     }
 
     protected def firstAccessibleConstructorIn(tpe: Type): MethodSymbol = {
@@ -57,10 +54,9 @@ object InvocationStrategy {
         .getOrElse(c.abort(c.enclosingPosition, s"None of the ${constructors.length} constructor(s) in $tpe seem to be accessible"))
     }
 
-    def liftConstructorImpl[Environment: WeakTypeTag, A: WeakTypeTag]: Expr[Environment => A] = c.Expr {
+    def liftConstructorImpl[Environment: WeakTypeTag, A: WeakTypeTag]: Expr[Environment => A] = {
       val A = weakTypeOf[A]
-      createLiftedFunction[Environment](
-        returnType     = A,
+      createLiftedFunction[Environment, A](
         function       = Select(New(TypeTree(A)), termNames.CONSTRUCTOR),
         parameterLists = firstAccessibleConstructorIn(A).paramLists
       )
