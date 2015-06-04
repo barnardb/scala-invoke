@@ -8,12 +8,17 @@ object InvocationStrategy {
   class MacroImplementations(val c: blackbox.Context) {
     import c.universe._
 
-    protected def findStrategy[Environment]: Expr[InvocationStrategy[Environment]] =
-      if (c.prefix.actualType <:< typeOf[InvocationStrategy[_]]) c.Expr(c.prefix.tree)
-      else c.prefix.tree.symbol.typeSignature.member(TermName("strategy")) match {
-        case NoSymbol => c.abort(c.enclosingPosition, s"Can't find the InvocationStrategy to use (prefix symbol ${c.prefix.tree.symbol}, sig: ${c.prefix.tree.symbol.typeSignature}})")
-        case strategy => c.Expr(q"${c.prefix}.$strategy")
+    protected def typecheckedExpr[T: WeakTypeTag](tree: Tree): Expr[T] =
+      c.Expr[T](c.typecheck(tree, pt = weakTypeOf[T]))
+
+    protected def findStrategy[Environment: WeakTypeTag](tree: Tree = c.prefix.tree): Expr[InvocationStrategy[Environment]] = {
+      tree match {
+        case _ if tree.tpe <:< weakTypeOf[InvocationStrategy[Environment]] => typecheckedExpr[InvocationStrategy[Environment]](tree)
+        case           Select(prefix, _)     => findStrategy(prefix)
+        case TypeApply(Select(prefix, _), _) => findStrategy(prefix)
+        case _ => c.abort(c.prefix.tree.pos, s"Can't find the InvocationStrategy in prefix. Prefix tree: ${showRaw(c.prefix.tree)}")
       }
+    }
 
     protected def extractParameter[Environment](parameter: Symbol)(implicit strategy: Expr[InvocationStrategy[Environment]]): Tree = {
       val extractionMethod =
@@ -30,7 +35,7 @@ object InvocationStrategy {
     }
 
     protected def createLiftedFunction[Environment: WeakTypeTag, R: WeakTypeTag](function: Tree, parameterLists: List[List[Symbol]]): Expr[Environment => R] = c.Expr {
-      implicit val strategy = findStrategy[Environment]
+      implicit val strategy = findStrategy[Environment]()
       c.typecheck(
         tree = q"(environment: ${weakTypeOf[Environment]}) => $function(...${parameterLists.map(_.map(extractParameter[Environment]))})",
         pt = weakTypeOf[Environment => R]
@@ -106,8 +111,8 @@ abstract class InvocationStrategy[Environment] { is =>
   def liftConstructor[T]: Environment => T =
     macro InvocationStrategy.MacroImplementations.liftConstructorImpl[Environment, T]
 
-  def method[Target]: MethodLifter[Target] = new MethodLifter[Target](this)
-  final class MethodLifter[Target](val strategy: is.type) {
+  def method[Target]: MethodLifter[Target] = null  // no need to instantiate, since everything on the lifter is made of macro magic
+  final abstract class MethodLifter[Target] {
     /**
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
      */

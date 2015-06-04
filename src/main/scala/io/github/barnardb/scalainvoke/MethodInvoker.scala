@@ -7,7 +7,8 @@ object MethodInvoker {
   class MacroImplementations(override val c: blackbox.Context) extends InvocationStrategy.MacroImplementations(c) {
     import c.universe._
 
-    protected def createLiftedMethod[Target: WeakTypeTag, Environment: WeakTypeTag](method: MethodSymbol)(implicit strategy: Expr[InvocationStrategy[Environment]] = findStrategy[Environment]): Tree = {
+    protected def createLiftedMethod[Target: WeakTypeTag, Environment: WeakTypeTag](method: MethodSymbol): Tree = {
+      implicit val strategy: Expr[InvocationStrategy[Environment]] = findStrategy[Environment]()
       require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
       val Target = weakTypeOf[Target]
       val Environment = weakTypeOf[Environment]
