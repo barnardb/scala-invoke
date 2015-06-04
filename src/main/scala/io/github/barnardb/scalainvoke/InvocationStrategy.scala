@@ -65,9 +65,9 @@ object InvocationStrategy {
 }
 
 /**
- * A strategy for invoking arbitrary functions, methods and constructors given an object of type [[Environment]].
+ * A strategy for invoking arbitrary functions, methods and constructors given an object of type `Environment`.
  *
- * Implementers of this class must implement methods for extracting argument values from an [[Environment]].
+ * Implementers of this class must implement methods for extracting argument values from an `Environment`.
  * The methods accept an environment and a parameter name,
  * and must have signatures such that invoking code could appear to be calling methods declared as:
  * {{{
@@ -78,7 +78,7 @@ object InvocationStrategy {
  * add implicit parameters, use macros, etc.
  *
  * This class provides a family of methods to lift functions, methods and constructors
- * into functions that take an [[Environment]], extract argument values using the extraction methods described above,
+ * into functions that take an `Environment`, extract argument values using the extraction methods described above,
  * invoke the underlying function, method or constructor, and return the result.
  *
  * The main [[lift]] method handles function literals and eta-expanded methods.
@@ -93,14 +93,14 @@ abstract class InvocationStrategy[Environment] { is =>
   */
 
   /**
-   * Lifts a function into one that takes an [[Environment]], uses the strategy to extract arguments,
+   * Lifts a function into one that takes an `Environment`, uses the strategy to extract arguments,
    * invokes the original underlying function, and returns the result.
    * @tparam R the function's result type
    */
   def lift[R](function: FunctionReturning[R]): Environment => R = macro InvocationStrategy.MacroImplementations.liftImpl[Environment, R]
 
   /**
-   * Lifts the first accessible constructor for class [[T]] into a function that takes an [[Environment]],
+   * Lifts the first accessible constructor for class `T` into a function that takes an `Environment`,
    * uses the strategy to extract arguments, invokes the constructor, and returns the new instance.
    */
   def liftConstructor[T]: Environment => T =
@@ -116,7 +116,7 @@ abstract class InvocationStrategy[Environment] { is =>
 
     /**
      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
-     * into binary functions that take a [[Target]] and an [[Environment]] and return a value of type [[R]].
+     * into binary functions that take a `Target` and an `Environment` and return a value of type `R`.
      * @tparam R the method's result type
      */
     def apply[R](prototype: Target => FunctionReturning[R]): (Target, Environment) => R =
@@ -130,7 +130,7 @@ abstract class InvocationStrategy[Environment] { is =>
 
     /**
      * These methods lift methods denoted by prototypes of the form {{{strategy.method[Target](_.methodOnTarget(_, _))}}}
-     * into binary functions that take a [[Target]] and an [[Environment]] and return a value of type [[R]].
+     * into binary functions that take a `Target` and an `Environment` and return a value of type `R`.
      * @tparam R the method's result type
      */
     def apply[R](prototype: (Target, *) => R): (Target, Environment) => R = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment]

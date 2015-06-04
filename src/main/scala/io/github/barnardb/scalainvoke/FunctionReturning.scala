@@ -30,7 +30,7 @@ object FunctionReturning {
 }
 
 /**
- * A wrapper class for FunctionN values that return values of type [[R]].
+ * A wrapper class for FunctionN values that return values of type `R`.
  *
  * This allows types to be expressed that accept functions of any arity while constraining their return types,
  * which allows us to work around some typing quirks that I couldn't get around with overloaded methods.
