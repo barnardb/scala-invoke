@@ -1,6 +1,6 @@
 package io.github.barnardb.scalainvoke
 
-final class DeferredInvocationStrategy[E] extends ImplicitExtractorInvocationStrategy[E, Function0] {
+final class DeferredInvocation extends ReturnValueStrategy[Function0] {
 
   def wrapInvocation[T](invocation: => T): () => T = () => invocation
 

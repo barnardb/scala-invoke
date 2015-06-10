@@ -13,21 +13,21 @@ object InvocationStrategy {
     protected def typecheckedExpr[T: WeakTypeTag](tree: Tree): Expr[T] =
       c.Expr[T](c.typecheck(tree, pt = weakTypeOf[T]))
 
-    protected def findStrategy[Environment, R[_]](tree: Tree = c.prefix.tree)(implicit wttE: WeakTypeTag[Environment], wttIS: WeakTypeTag[InvocationStrategy[Environment, R]]): Expr[InvocationStrategy[Environment, R]] = {
+    protected def findStrategy[Environment, R[_], ES <: ExtractionStrategy[Environment], RVS <: ReturnValueStrategy[R]](tree: Tree = c.prefix.tree)(implicit wttE: WeakTypeTag[Environment], wttIS: WeakTypeTag[InvocationStrategy[Environment, R, ES, RVS]]): Expr[InvocationStrategy[Environment, R, ES, RVS]] = {
       tree match {
-        case _ if tree.tpe.baseType(symbolOf[InvocationStrategy[Environment, R]]) != NoType =>
-          c.Expr[InvocationStrategy[Environment, R]](tree)
+        case _ if tree.tpe.baseType(symbolOf[InvocationStrategy[Environment, R, ES, RVS]]) != NoType =>
+          c.Expr[InvocationStrategy[Environment, R, ES, RVS]](tree)
         case           Select(prefix, _)     => findStrategy(prefix)
         case TypeApply(Select(prefix, _), _) => findStrategy(prefix)
         case _ => c.abort(c.prefix.tree.pos, s"Can't find the InvocationStrategy in prefix. Prefix tree: ${showRaw(c.prefix.tree)}")
       }
     }
 
-    protected def extractParameter[Environment, R[_]](parameter: Symbol)(implicit strategy: Expr[InvocationStrategy[Environment, R]]): Tree = {
+    protected def extractParameter[Environment, R[_], ES <: ExtractionStrategy[Environment], RVS <: ReturnValueStrategy[R]](parameter: Symbol)(implicit strategy: Expr[InvocationStrategy[Environment, R, ES, RVS]]): Tree = {
       val extractionMethod =
         if (parameter.isImplicit) TermName("extractImplicit")
         else TermName("extract")
-      q"$strategy.$extractionMethod[${parameter.typeSignature}](environment, ${parameter.name.toString})"
+      q"$strategy.extractionStrategy.$extractionMethod[${parameter.typeSignature}](environment, ${parameter.name.toString})"
     }
 
     protected def extractFunctionParamSymbols(tree: Tree): List[Symbol] = tree match {
@@ -37,30 +37,30 @@ object InvocationStrategy {
       case Ident(_)            => c.abort(tree.pos, s"Can't unwrap a function from ${showRaw(tree)}")
     }
 
-    protected def createLiftedFunction[Environment: WeakTypeTag, R[_], RApplied <: R[_]: WeakTypeTag, A: WeakTypeTag](function: Tree, parameterLists: List[List[Symbol]]): Expr[Environment => R[A]] = c.Expr {
+    protected def createLiftedFunction[Environment: WeakTypeTag, R[_], ES <: ExtractionStrategy[Environment]: WeakTypeTag, RVS <: ReturnValueStrategy[R]: WeakTypeTag, RApplied <: R[_]: WeakTypeTag, A: WeakTypeTag](function: Tree, parameterLists: List[List[Symbol]]): Expr[Environment => R[A]] = c.Expr {
       implicit val wttra: WeakTypeTag[R[A]] = weakTypeTagForAppliedType[R, RApplied, A](c)
-      implicit val strategy = findStrategy[Environment, R]()
+      implicit val strategy = findStrategy[Environment, R, ES, RVS]()
       val namedParameterLists = parameterLists.map(_.map(p => c.freshName(p.name.asInstanceOf[TermName]) -> p))
       val invocation = q"$function(...${namedParameterLists.map(_.map{case (name, _) => q"$name"})})"
-      val wrappedInvocation = q"$strategy.wrapInvocation[${weakTypeOf[A]}]($invocation)"
+      val wrappedInvocation = q"$strategy.returnValueStrategy.wrapInvocation[${weakTypeOf[A]}]($invocation)"
       c.typecheck(
         tree =
 //          $function(...${namedParameterLists.map(_.map{case (name, _) => q"$strategy.unwrap($name)"})})
           q"""(environment: ${weakTypeOf[Environment]}) => {
-              ..${namedParameterLists.flatten.map {case (name, sym) => q"val $name = ${extractParameter[Environment, R](sym)}"}}
+              ..${namedParameterLists.flatten.map {case (name, sym) => q"val $name = ${extractParameter[Environment, R, ES, RVS](sym)}"}}
               $wrappedInvocation
           }""",
         pt = weakTypeOf[Environment => R[A]]
       )
     }
 
-    def liftImpl[Environment: WeakTypeTag, R[_], RApplied <: R[_]: WeakTypeTag, A: WeakTypeTag](function: Tree): Expr[Environment => R[A]] = function match {
+    def liftImpl[Environment: WeakTypeTag, R[_], ES <: ExtractionStrategy[Environment], RVS <: ReturnValueStrategy[R], RApplied <: R[_]: WeakTypeTag, A: WeakTypeTag](function: Tree): Expr[Environment => R[A]] = function match {
       case Block(stats, expr) =>
         import c.internal._, decorators._
         implicit val wttra: WeakTypeTag[R[A]] = weakTypeTagForAppliedType[R, RApplied, A](c)
-        c.Expr(Block(stats, liftImpl[Environment, R, RApplied, A](expr).tree) setType weakTypeOf[Environment => R[A]])
+        c.Expr(Block(stats, liftImpl[Environment, R, ES, RVS, RApplied, A](expr).tree) setType weakTypeOf[Environment => R[A]])
       case Apply(TypeApply(Select(Select(This(TypeName("scalainvoke")), TermName("FunctionReturning")), TermName("apply")), List(_)), List(unwrappedFunction)) =>
-        createLiftedFunction[Environment, R, RApplied, A](OwnerChainCorrector.splice(c)(unwrappedFunction), List(extractFunctionParamSymbols(unwrappedFunction)))
+        createLiftedFunction[Environment, R, ES, RVS, RApplied, A](OwnerChainCorrector.splice(c)(unwrappedFunction), List(extractFunctionParamSymbols(unwrappedFunction)))
       case t =>
         c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
     }
@@ -72,9 +72,9 @@ object InvocationStrategy {
         .getOrElse(c.abort(c.enclosingPosition, s"None of the ${constructors.length} constructor(s) in $tpe seem to be accessible"))
     }
 
-    def liftConstructorImpl[Environment: WeakTypeTag, R[_], RApplied <: R[_]: WeakTypeTag, A: WeakTypeTag]: Expr[Environment => R[A]] = {
+    def liftConstructorImpl[Environment: WeakTypeTag, R[_], ES <: ExtractionStrategy[Environment], RVS <: ReturnValueStrategy[R], RApplied <: R[_]: WeakTypeTag, A: WeakTypeTag]: Expr[Environment => R[A]] = {
       val A = weakTypeOf[A]
-      createLiftedFunction[Environment, R, RApplied, A](
+      createLiftedFunction[Environment, R, ES, RVS, RApplied, A](
         function       = Select(New(TypeTree(A)), termNames.CONSTRUCTOR),
         parameterLists = firstAccessibleConstructorIn(A).paramLists
       )
@@ -104,7 +104,7 @@ object InvocationStrategy {
  *
  * [[liftConstructor]] lifts the first accessible constructor of a class type.
  */
-abstract class InvocationStrategy[Environment, R[_]] { is =>
+class InvocationStrategy[Environment, R[_], ES <: ExtractionStrategy[Environment], RVS <: ReturnValueStrategy[R]](val extractionStrategy: ES, val returnValueStrategy: RVS) { is =>
 
   /* Conceptual methods (see class documentation above)
   def extract[A](environment: Environment, name: String): A
@@ -116,14 +116,14 @@ abstract class InvocationStrategy[Environment, R[_]] { is =>
    * invokes the original underlying function, and returns the result.
    * @tparam A the function's result type
    */
-  def lift[A](function: FunctionReturning[A]): Environment => R[A] = macro InvocationStrategy.MacroImplementations.liftImpl[Environment, R, R[_], A]
+  def lift[A](function: FunctionReturning[A]): Environment => R[A] = macro InvocationStrategy.MacroImplementations.liftImpl[Environment, R, ES, RVS, R[_], A]
 
   /**
    * Lifts the first accessible constructor for class `A` into a function that takes an `Environment`,
    * uses the strategy to extract arguments, invokes the constructor, and returns the new instance.
    */
   def liftConstructor[A]: Environment => R[A] =
-    macro InvocationStrategy.MacroImplementations.liftConstructorImpl[Environment, R, R[_], A]
+    macro InvocationStrategy.MacroImplementations.liftConstructorImpl[Environment, R, ES, RVS, R[_], A]
 
   def method[Target]: MethodLifter[Target] = null  // no need to instantiate, since everything on the lifter is made of macro magic
   final abstract class MethodLifter[Target] {
@@ -131,7 +131,7 @@ abstract class InvocationStrategy[Environment, R[_]] { is =>
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
      */
     def apply(methodName: String): (Target, Environment) => _ =
-      macro MethodInvoker.WhiteboxMacroImplementations.deriveByName[Target, Environment, R]
+      macro MethodInvoker.WhiteboxMacroImplementations.deriveByName[Target, Environment, R, ES, RVS]
 
     /**
      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
@@ -139,7 +139,7 @@ abstract class InvocationStrategy[Environment, R[_]] { is =>
      * @tparam A the method's result type
      */
     def apply[A](prototype: Target => FunctionReturning[A]): (Target, Environment) => A =
-      macro MethodInvoker.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target, Environment, R]
+      macro MethodInvoker.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target, Environment, R, ES, RVS]
 
     /**
      * Syntactic shortcut for Nothing in contravariant positions,
@@ -152,26 +152,26 @@ abstract class InvocationStrategy[Environment, R[_]] { is =>
      * into binary functions that take a `Target` and an `Environment` and return a value of type `A`.
      * @tparam A the method's result type
      */
-    def apply[A](prototype: (Target, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R, ES, RVS]
   }
 }
