@@ -2,7 +2,7 @@ package io.github.barnardb.scalainvoke
 
 import org.scalatest.FunSuite
 
-class InvocationStrategyTest extends FunSuite {
+class FunctionLifterTest extends FunSuite {
 
   class DemoClass(id: String) {
     def foo(first: String, second: Int): String = s"[$id] First: $first, second: $second"
@@ -17,7 +17,9 @@ class InvocationStrategyTest extends FunSuite {
     }
   }
 
-  val strategy = new InvocationStrategy[Map[String, String], Id] with ImplicitExtractors[Map[String, String]] with DirectInvocation
+  val strategy = new FunctionLifter[Map[String, String], Id]
+    with ImplicitArgumentExtractors[Map[String, String]]
+    with DirectInvocation
 
   test("lifts inline function literals") {
     import TestExtractors._

@@ -2,12 +2,14 @@ package io.github.barnardb.scalainvoke
 
 import org.scalatest.FunSuite
 
-class DeferredInvocationStrategyTest extends FunSuite {
+class DeferredInvocationTest extends FunSuite {
 
   class Box(init: String) {
     var value = init
   }
-  val strategy = new InvocationStrategy[Map[String, Box], Function0] with ImplicitExtractors[Map[String, Box]] with DeferredInvocation
+  val strategy = new FunctionLifter[Map[String, Box], Function0]
+    with ImplicitArgumentExtractors[Map[String, Box]]
+    with DeferredInvocation
 
   implicit object BoxExtractor extends Extractor[Map[String, Box], String] {
     override def extract(a: Map[String, Box], name: String): String = {

@@ -5,11 +5,11 @@ import scala.reflect.macros.{blackbox, whitebox}
 
 object MethodInvoker {
 
-  class MacroImplementations(override val c: blackbox.Context) extends InvocationStrategy.MacroImplementations(c) {
+  class MacroImplementations(override val c: blackbox.Context) extends FunctionLifter.MacroImplementations(c) {
     import c.universe._
 
     protected def createLiftedMethod[Target: WeakTypeTag, Environment: WeakTypeTag, R[_]](method: MethodSymbol): Tree = {
-      implicit val strategy: Expr[InvocationStrategy[Environment, R]] = findStrategy[Environment, R]()
+      implicit val strategy: Expr[FunctionLifter[Environment, R]] = findStrategy[Environment, R]()
       require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
       val Target = weakTypeOf[Target]
       val Environment = weakTypeOf[Environment]
