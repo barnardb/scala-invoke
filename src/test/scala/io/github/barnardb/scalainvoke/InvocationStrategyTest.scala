@@ -17,7 +17,7 @@ class InvocationStrategyTest extends FunSuite {
     }
   }
 
-  val strategy = new InvocationStrategy[Map[String, String], Id, ImplicitExtractors[Map[String, String]], DirectInvocation](new ImplicitExtractors[Map[String, String]], new DirectInvocation)
+  val strategy = new InvocationStrategy[Map[String, String], Id] with ImplicitExtractors[Map[String, String]] with DirectInvocation
 
   test("lifts inline function literals") {
     import TestExtractors._

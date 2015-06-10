@@ -30,7 +30,7 @@ trait Extractor[A, B] extends ExplicitExtractor[A, B] with ImplicitExtractor[A, 
  * and implicit [[ImplicitExtractor]]s to extract implicit parameters.
  * @tparam E environment type
  */
-final class ImplicitExtractors[E] extends ExtractionStrategy[E] {
+trait ImplicitExtractors[E] extends ExtractionStrategy[E] {
 
   def extract[A](environment: E, name: String)(implicit extractor: ExplicitExtractor[E, A]): A =
     extractor.extract(environment, name)
