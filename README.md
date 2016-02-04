@@ -8,9 +8,6 @@ with compile-time verification that you have an appropriate strategy for derivin
 Future Work
 -----------
 
-- There should be a clean way of extracting parameters when the name isn't known,
-  like when building an extractor from a function value.  
-
 - For method invocations, it should be possible to extract the target from the environment.
 
 - It should be possible to get have multiple parameter extractions fail,

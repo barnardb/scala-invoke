@@ -7,6 +7,9 @@ import io.github.barnardb.scalainvoke.macroutil.OwnerChainCorrector
 import io.github.barnardb.scalainvoke.macroutil.WeakTypeTagCorrector._
 
 object FunctionLifter {
+
+  private val functionApplyMethodPattern = raw"scala\.Function[0-9]+\.apply".r.anchored
+
   class MacroImplementations(val c: blackbox.Context) {
     import c.universe._
 
@@ -23,18 +26,23 @@ object FunctionLifter {
       }
     }
 
-    protected def extractParameter[Environment, R[_]](parameter: Symbol)(implicit strategy: Expr[FunctionLifter[Environment, R]]): Tree = {
-      val extractionMethod =
-        if (parameter.isImplicit) TermName("extractImplicit")
-        else TermName("extract")
-      q"$strategy.$extractionMethod[${parameter.typeSignature}](environment, ${parameter.name.toString})"
-    }
+    protected def extractParameter[Environment, R[_]](parameter: Symbol)(implicit strategy: Expr[FunctionLifter[Environment, R]]): Tree =
+      if (functionApplyMethodPattern.findFirstIn(parameter.owner.fullName).isDefined)
+        q"$strategy.extract[${parameter.typeSignature}](environment)"
+      else {
+        val extractionMethod =
+          if (parameter.isImplicit) TermName("extractImplicit")
+          else TermName("extract")
+        q"$strategy.$extractionMethod[${parameter.typeSignature}](environment, ${parameter.name.toString})"
+      }
 
-    protected def extractFunctionParamSymbols(tree: Tree): List[Symbol] = tree match {
-      case Function(params, _) => params.map(_.symbol)
-      case Block(_, expr)      => extractFunctionParamSymbols(expr)
-      case Typed(expr, _)      => extractFunctionParamSymbols(expr)
-      case Ident(_)            => c.abort(tree.pos, s"Can't unwrap a function from ${showRaw(tree)}")
+    protected def extractFunctionParamLists(tree: Tree): List[List[Symbol]] = tree match {
+      case Function(params, _) => List(params.map(_.symbol))
+      case Block(_, expr)      => extractFunctionParamLists(expr)
+      case Typed(expr, _)      => extractFunctionParamLists(expr)
+      case Ident(_)            =>
+        val typeSignature = tree.symbol.typeSignature
+        typeSignature.member(TermName("apply")).typeSignatureIn(typeSignature).paramLists
     }
 
     protected def createLiftedFunction[Environment: WeakTypeTag, R[_], RApplied <: R[_]: WeakTypeTag, A: WeakTypeTag](function: Tree, parameterLists: List[List[Symbol]]): Expr[Environment => R[A]] = c.Expr {
@@ -60,7 +68,7 @@ object FunctionLifter {
         implicit val wttra: WeakTypeTag[R[A]] = weakTypeTagForAppliedType[R, RApplied, A](c)
         c.Expr(Block(stats, liftImpl[Environment, R, RApplied, A](expr).tree) setType weakTypeOf[Environment => R[A]])
       case Apply(TypeApply(Select(Select(This(TypeName("scalainvoke")), TermName("FunctionReturning")), TermName("apply")), List(_)), List(unwrappedFunction)) =>
-        createLiftedFunction[Environment, R, RApplied, A](OwnerChainCorrector.splice(c)(unwrappedFunction), List(extractFunctionParamSymbols(unwrappedFunction)))
+        createLiftedFunction[Environment, R, RApplied, A](OwnerChainCorrector.splice(c)(unwrappedFunction), extractFunctionParamLists(unwrappedFunction))
       case t =>
         c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
     }
@@ -125,6 +133,7 @@ class FunctionLifter[Environment, R[_]] {
   /**
    * Lifts a function into one that takes an `Environment`, uses the strategy to extract arguments,
    * invokes the original underlying function, and returns the result.
+   *
    * @tparam A the function's result type
    */
   def lift[A](function: FunctionReturning[A]): Environment => R[A] = macro FunctionLifter.MacroImplementations.liftImpl[Environment, R, R[_], A]
@@ -147,6 +156,7 @@ class FunctionLifter[Environment, R[_]] {
     /**
      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
      * into binary functions that take a `Target` and an `Environment` and return a value of type `A`.
+     *
      * @tparam A the method's result type
      */
     def apply[A](prototype: Target => FunctionReturning[A]): (Target, Environment) => A =
@@ -161,6 +171,7 @@ class FunctionLifter[Environment, R[_]] {
     /**
      * These methods lift methods denoted by prototypes of the form {{{strategy.method[Target](_.methodOnTarget(_, _))}}}
      * into binary functions that take a `Target` and an `Environment` and return a value of type `A`.
+     *
      * @tparam A the method's result type
      */
     def apply[A](prototype: (Target, *)                                                             => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]

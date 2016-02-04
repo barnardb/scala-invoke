@@ -32,16 +32,22 @@ class FunctionLifterTest extends FunSuite {
     }
   }
 
-//  test("invokes function values defined elsewhere") {
-//    val foo = (first: String, second: Int) => s"First: $first, second: $second"
-//
-//    import Extractors._
-//    val invoker = strategy.functionInvoker(foo)
-//
-//    assertResult("First: a, second: 42") {
-//      invoker(Map("first" -> "a", "second" -> "42")): String
-//    }
-//  }
+  test("invokes function values defined elsewhere, resorting to extracting arguments without parameter names") {
+    val foo = (first: String, second: Int) => s"First: $first, second: $second"
+
+    implicit object UnnamedStringExtractor extends UnnamedExtractor[Map[String, String], String] {
+      override def extract(a: Map[String, String]): String = a("defaultString")
+    }
+    implicit object UnnamedIntExtractor extends UnnamedExtractor[Map[String, String], Int] {
+      override def extract(a: Map[String, String]): Int = a("defaultInt").toInt
+    }
+
+    val invoker = strategy.lift(foo)
+
+    assertResult("First: unfortunate, second: 7") {
+      invoker(Map("first" -> "a", "second" -> "42", "defaultString" -> "unfortunate", "defaultInt" -> "7")): String
+    }
+  }
 
   test("lifts eta-expanded local methods") {
     def localMethod(first: String, second: Int): String = s"First: $first, second: $second"
