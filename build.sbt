@@ -14,12 +14,12 @@ developers :=
 
 
 
-crossScalaVersions in Global := Seq("2.11.6", "2.12.0-M1")
+crossScalaVersions in Global := Seq("2.11.7", "2.12.0-M3")
 scalaVersion in Global <<= (crossScalaVersions in Global)(_.head)
 
 libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value
 
-libraryDependencies += "org.scalatest" %% "scalatest" % (if (scalaVersion.value == "2.12.0-M1") "2.2.5-M1" else "2.2.5") % Test
+libraryDependencies += "org.scalatest" %% "scalatest" % (if (scalaVersion.value == "2.12.0-M3") "2.2.5-M3" else "2.2.6") % Test
 
 conflictManager := ConflictManager.latestCompatible
 dependencyOverrides += "org.scala-lang" % "scala-library" % scalaVersion.value
@@ -35,9 +35,6 @@ scalacOptions := Seq(
   "-Xfatal-warnings",
   "-Xfuture",
   "-Xlint",
-  "-Yclosure-elim",
-  "-Yconst-opt",
-  "-Ydead-code",
   "-Yno-adapted-args",
   "-Ywarn-adapted-args",
   "-Ywarn-dead-code",
@@ -47,7 +44,15 @@ scalacOptions := Seq(
   "-Ywarn-nullary-unit",
   "-Ywarn-numeric-widen",
   "-Ywarn-unused",
-  "-Ywarn-unused-import")
+  "-Ywarn-unused-import"
+) ++ {
+  if (scalaVersion.value == "2.12.0-M3") Nil
+  else Seq(
+    "-Yclosure-elim",
+    "-Yconst-opt",
+    "-Ydead-code"
+  )
+}
 scalacOptions in Test := (scalacOptions in Test).value filterNot (_ == "-Ywarn-dead-code")
 
 testOptions in Test += Tests.Argument("-oF")
