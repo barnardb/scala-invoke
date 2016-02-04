@@ -160,7 +160,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by partial application") {
     import TestExtractors._
-    val invoker = strategy.method[DemoClass](_.foo _)
+    val invoker = strategy.liftMethod[DemoClass](_.foo _)
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new DemoClass("ha!"), Map("first" -> "a", "second" -> "42")): String
@@ -169,7 +169,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by prototype lambda") {
     import TestExtractors._
-    val invoker = strategy.method[DemoClass](_.foo(_, _))
+    val invoker = strategy.liftMethod[DemoClass](_.foo(_, _))
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new DemoClass("ha!"), Map("first" -> "a", "second" -> "42")): String
@@ -178,7 +178,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by name") {
     import TestExtractors._
-    val invoker = strategy.method[DemoClass]("foo")
+    val invoker = strategy.liftMethod[DemoClass]("foo")
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new DemoClass("ha!"), Map("first" -> "a", "second" -> "42")): String
@@ -192,7 +192,7 @@ class FunctionLifterTest extends FunSuite {
     }
 
     import TestExtractors._
-    val invoker = strategy.method[MultiFoo](_.foo(_: Int))
+    val invoker = strategy.liftMethod[MultiFoo](_.foo(_: Int))
 
     assertResult("3") {
       invoker(new MultiFoo, Map("value" -> "1")): String
@@ -205,7 +205,7 @@ class FunctionLifterTest extends FunSuite {
     }
 
     import TestExtractors._
-    val invoker = strategy.method[MultiArg](_.foo(_)(_))
+    val invoker = strategy.liftMethod[MultiArg](_.foo(_)(_))
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new MultiArg("ha!"), Map("first" -> "a", "second" -> "42")): String
@@ -224,11 +224,11 @@ class FunctionLifterTest extends FunSuite {
       override def extract(a: Map[String, String], name: String): String = "implicit " + a(name)
     }
 
-    val invoker = strategy.method[DifferentPlicities](_.foo(_)(_))
+    val invoker = strategy.liftMethod[DifferentPlicities](_.foo(_)(_))
 
     assertResult("[ha!] First: explicit a, second: implicit b") {
       implicit val implicitString: String = "c"
-      s"$implicitString should be ignored by the invoker, so we need to use it here to make the compiler happy"
+      s"$implicitString should be ignored by the invoker, so we need to use it here to avoid a compiler warning"
       invoker(new DifferentPlicities("ha!"), Map("first" -> "a", "second" -> "b")): String
     }
   }

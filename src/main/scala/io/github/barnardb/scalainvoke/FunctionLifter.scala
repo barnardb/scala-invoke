@@ -145,7 +145,7 @@ class FunctionLifter[Environment, R[_]] {
   def liftConstructor[A]: Environment => R[A] =
     macro FunctionLifter.MacroImplementations.liftConstructorImpl[Environment, R, R[_], A]
 
-  def method[Target]: MethodLifter[Target] = null  // no need to instantiate, since everything on the lifter is made of macro magic
+  def liftMethod[Target]: MethodLifter[Target] = null  // no need to instantiate, since everything on the lifter is made of macro magic
   final abstract class MethodLifter[Target] {
     /**
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
