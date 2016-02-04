@@ -34,8 +34,8 @@ trait ImplicitArgumentExtractors[E] extends ArgumentExtractionStrategy[E] {
 
   def extract[A](environment: E, name: String)(implicit extractor: ExplicitExtractor[E, A]): A =
     extractor.extract(environment, name)
+
   def extractImplicit[A](environment: E, name: String)(implicit extractor: ImplicitExtractor[E, A]): A =
     extractor.extract(environment, name)
+
 }
-
-

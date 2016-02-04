@@ -35,4 +35,4 @@ object FunctionReturning {
  * This allows types to be expressed that accept functions of any arity while constraining their return types,
  * which allows us to work around some typing quirks that I couldn't get around with overloaded methods.
  */
-final class FunctionReturning[R] private (val function: AnyRef) extends AnyVal
+final class FunctionReturning[R] private (private val function: AnyRef) extends AnyVal
