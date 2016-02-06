@@ -101,9 +101,10 @@ object FunctionLifter {
         .getOrElse(c.abort(c.enclosingPosition, s"None of the ${constructors.length} constructor(s) in $tpe seem to be accessible"))
     }
 
-    def liftConstructorImpl[AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy : WeakTypeTag, A: WeakTypeTag]: Expr[AES#Environment => IS#Wrapped[A]] = {
+    def liftConstructorImpl[IS <: InvocationStrategy : WeakTypeTag, A: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy]): Expr[aes.value.Environment => IS#Wrapped[A]] = {
       val A = weakTypeOf[A]
-      createLiftedFunction[AES, IS, A](
+      createLiftedFunction[IS, A](
+        aes            = aes,
         function       = Select(New(TypeTree(A)), termNames.CONSTRUCTOR),
         parameterLists = firstAccessibleConstructorIn(A).paramLists
       )
@@ -168,8 +169,8 @@ class FunctionLifter[AES <: ArgumentExtractionStrategy, IS <: InvocationStrategy
    * Lifts the first accessible constructor for class `A` into a function that takes an `Environment`,
    * uses the strategy to extract arguments, invokes the constructor, and returns the new instance.
    */
-  def liftConstructor[A]: AES#Environment => IS#Wrapped[A] =
-    macro FunctionLifter.MacroImplementations.liftConstructorImpl[AES, IS, A]
+  def liftConstructor[A](implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] =
+    macro FunctionLifter.MacroImplementations.liftConstructorImpl[IS, A]
 
   def liftMethod[Target]: MethodLifter[Target] = null  // no need to instantiate, since everything on the lifter is made of macro magic
   final abstract class MethodLifter[Target] {
