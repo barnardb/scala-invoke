@@ -21,7 +21,7 @@ class FunctionLifterTest extends FunSuite {
   }
 
   implicit val argumentExtractionStrategy = new ImplicitArgumentExtractors[Map[String, String]]
-  val strategy = new FunctionLifter[ImplicitArgumentExtractors[Map[String, String]], DirectInvocation](argumentExtractionStrategy, new DirectInvocation)
+  val strategy = new FunctionLifter[DirectInvocation](new DirectInvocation)
 
   test("lifts inline function literals") {
     import TestExtractors._

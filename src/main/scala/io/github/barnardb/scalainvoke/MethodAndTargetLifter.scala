@@ -10,8 +10,8 @@ object MethodAndTargetLifter {
     override protected def liftedParameters[Target: WeakTypeTag](Environment: Type): Seq[Tree] =
       Seq(q"environment: $Environment")
 
-    override protected def liftedInvocationTarget[Target: WeakTypeTag](implicit strategy: Expr[FunctionLifter[_, _]]): Tree =
-      extractUnnamed(c.Expr[ArgumentExtractionStrategy](q"$strategy.argumentExtractionStrategy"), weakTypeOf[Target])
+    override protected def liftedInvocationTarget[Target: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy]): Tree =
+      extractUnnamed(aes, weakTypeOf[Target])
 
     override protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
       appliedType(symbolOf[_ => _], Environment, method.returnType)
@@ -23,8 +23,8 @@ object MethodAndTargetLifter {
     override protected def liftedParameters[Target: WeakTypeTag](Environment: Type): Seq[Tree] =
       Seq(q"environment: $Environment")
 
-    override protected def liftedInvocationTarget[Target: WeakTypeTag](implicit strategy: Expr[FunctionLifter[_, _]]): Tree =
-      extractUnnamed(c.Expr[ArgumentExtractionStrategy](q"$strategy.argumentExtractionStrategy"), weakTypeOf[Target])
+    override protected def liftedInvocationTarget[Target: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy]): Tree =
+      extractUnnamed(aes, weakTypeOf[Target])
 
     override protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
       appliedType(symbolOf[_ => _], Environment, method.returnType)

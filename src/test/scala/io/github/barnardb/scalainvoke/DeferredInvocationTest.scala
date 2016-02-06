@@ -9,7 +9,7 @@ class DeferredInvocationTest extends FunSuite {
   }
 
   implicit val argumentExtractionStrategy = new ImplicitArgumentExtractors[Map[String, Var]]
-  val strategy = new FunctionLifter[ImplicitArgumentExtractors[Map[String, Var]], DeferredInvocation](argumentExtractionStrategy, new DeferredInvocation)
+  val strategy = new FunctionLifter[DeferredInvocation](new DeferredInvocation)
 
   implicit object VarExtractor extends Extractor[Map[String, Var], String] {
     override def extract(a: Map[String, Var], name: String): String = {

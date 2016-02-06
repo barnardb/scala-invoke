@@ -10,42 +10,31 @@ object MethodLifter {
     protected def liftedParameters[Target: WeakTypeTag](Environment: Type): Seq[Tree] =
       Seq(q"target: ${weakTypeOf[Target]}", q"environment: $Environment")
 
-    protected def liftedInvocationTarget[Target: WeakTypeTag](implicit strategy: Expr[FunctionLifter[_, _]]): Tree =
+    protected def liftedInvocationTarget[Target: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy]): Tree =
       q"target"
 
     protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
       appliedType(symbolOf[(_, _) => _], weakTypeOf[Target], Environment, method.returnType)
 
-    protected def createLiftedMethod[Target: WeakTypeTag, AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy](method: MethodSymbol): Tree = {
-      val Environment = weakTypeOf[AES].member(TypeName("Environment")).asType.typeSignatureIn(weakTypeOf[AES])
-      implicit val strategy = findStrategy()
-      require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
-      c.typecheck(
-        tree = q"""(..${liftedParameters[Target](Environment)}) => ${q"""${liftedInvocationTarget[Target]}.$method(...${method.paramLists.map(_.map(extractParameter))})"""}""",
-        pt = liftedFunctionType[Target](Environment, method)
-      )
-    }
-
     protected def createLiftedMethod[Target: WeakTypeTag, IS <: InvocationStrategy : WeakTypeTag](aes: Expr[ArgumentExtractionStrategy], method: MethodSymbol): Tree = {
       implicit val Environment = aes.actualType.member(TypeName("Environment")).asType.typeSignatureIn(aes.actualType)
-      implicit val strategy = findStrategy()
       require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
       c.typecheck(
-        tree = q"""(..${liftedParameters[Target](Environment)}) => ${q"""${liftedInvocationTarget[Target]}.$method(...${method.paramLists.map(_.map(extractParameter))})"""}""",
+        tree = q"""(..${liftedParameters[Target](Environment)}) => ${q"""${liftedInvocationTarget[Target](aes)}.$method(...${method.paramLists.map(_.map(extractParameter(aes, _)))})"""}""",
         pt = liftedFunctionType[Target](Environment, method)
       )
     }
 
 
 
-    def deriveFromPrototype[Target: WeakTypeTag, AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy](prototype: Tree): Tree = {
+    def deriveFromPrototype[Target: WeakTypeTag, IS <: InvocationStrategy](prototype: Tree)(aes: Expr[ArgumentExtractionStrategy]): Tree = {
       val Function(_, Apply(methodSelection, _)) = prototype
-      createLiftedMethod[Target, AES, IS](methodSelection.symbol.asMethod)
+      createLiftedMethod[Target, IS](aes, methodSelection.symbol.asMethod)
     }
 
-    def liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target: WeakTypeTag, AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy](prototype: Tree): Tree = {
+    def liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target: WeakTypeTag, IS <: InvocationStrategy](prototype: Tree)(aes: Expr[ArgumentExtractionStrategy]): Tree = {
       val Function(List(_), Apply(_, List(Block(List(), Function(_, Apply(methodSelection, _)))))) = prototype
-      createLiftedMethod[Target, AES, IS](methodSelection.symbol.asMethod)
+      createLiftedMethod[Target, IS](aes, methodSelection.symbol.asMethod)
     }
   }
 
