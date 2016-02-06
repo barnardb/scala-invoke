@@ -177,8 +177,8 @@ class FunctionLifter[AES <: ArgumentExtractionStrategy, IS <: InvocationStrategy
     /**
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
      */
-    def apply(methodName: String): (Target, AES#Environment) => IS#Wrapped[_] =
-      macro MethodLifter.WhiteboxMacroImplementations.deriveByName[Target, AES, IS]
+    def apply(methodName: String)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[_] =
+      macro MethodLifter.WhiteboxMacroImplementations.deriveByName[Target, IS]
 
     /**
      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
@@ -223,8 +223,8 @@ class FunctionLifter[AES <: ArgumentExtractionStrategy, IS <: InvocationStrategy
     /**
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
      */
-    def apply(methodName: String): AES#Environment => IS#Wrapped[_] =
-      macro MethodAndTargetLifter.WhiteboxMacroImplementations.deriveByName[Target, AES, IS]
+    def apply(methodName: String)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[_] =
+      macro MethodAndTargetLifter.WhiteboxMacroImplementations.deriveByName[Target, IS]
 
     /**
      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}

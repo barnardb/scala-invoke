@@ -7,24 +7,36 @@ object MethodLifter {
   class MacroImplementations(override val c: blackbox.Context) extends FunctionLifter.MacroImplementations(c) {
     import c.universe._
 
-    protected def liftedParameters[Target: WeakTypeTag, Environment: WeakTypeTag]: Seq[Tree] =
-      Seq(q"target: ${weakTypeOf[Target]}", q"environment: ${weakTypeOf[Environment]}")
+    protected def liftedParameters[Target: WeakTypeTag](Environment: Type): Seq[Tree] =
+      Seq(q"target: ${weakTypeOf[Target]}", q"environment: $Environment")
 
     protected def liftedInvocationTarget[Target: WeakTypeTag](implicit strategy: Expr[FunctionLifter[_, _]]): Tree =
       q"target"
 
-    protected def liftedFunctionType[Target: WeakTypeTag, Environment: WeakTypeTag](method: MethodSymbol): c.universe.Type =
-      appliedType(symbolOf[(_, _) => _], weakTypeOf[Target], weakTypeOf[Environment], method.returnType)
+    protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
+      appliedType(symbolOf[(_, _) => _], weakTypeOf[Target], Environment, method.returnType)
 
     protected def createLiftedMethod[Target: WeakTypeTag, AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy](method: MethodSymbol): Tree = {
-      implicit val wttEnvironment: WeakTypeTag[AES#Environment] = c.WeakTypeTag[AES#Environment](weakTypeOf[AES].member(TypeName("Environment")).asType.typeSignatureIn(weakTypeOf[AES]))
+      val Environment = weakTypeOf[AES].member(TypeName("Environment")).asType.typeSignatureIn(weakTypeOf[AES])
       implicit val strategy = findStrategy()
       require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
       c.typecheck(
-        tree = q"""(..${liftedParameters[Target, AES#Environment]}) => ${q"""${liftedInvocationTarget[Target]}.$method(...${method.paramLists.map(_.map(extractParameter))})"""}""",
-        pt = liftedFunctionType[Target, AES#Environment](method)
+        tree = q"""(..${liftedParameters[Target](Environment)}) => ${q"""${liftedInvocationTarget[Target]}.$method(...${method.paramLists.map(_.map(extractParameter))})"""}""",
+        pt = liftedFunctionType[Target](Environment, method)
       )
     }
+
+    protected def createLiftedMethod[Target: WeakTypeTag, IS <: InvocationStrategy : WeakTypeTag](aes: Expr[ArgumentExtractionStrategy], method: MethodSymbol): Tree = {
+      implicit val Environment = aes.actualType.member(TypeName("Environment")).asType.typeSignatureIn(aes.actualType)
+      implicit val strategy = findStrategy()
+      require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
+      c.typecheck(
+        tree = q"""(..${liftedParameters[Target](Environment)}) => ${q"""${liftedInvocationTarget[Target]}.$method(...${method.paramLists.map(_.map(extractParameter))})"""}""",
+        pt = liftedFunctionType[Target](Environment, method)
+      )
+    }
+
+
 
     def deriveFromPrototype[Target: WeakTypeTag, AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy](prototype: Tree): Tree = {
       val Function(_, Apply(methodSelection, _)) = prototype
@@ -40,9 +52,9 @@ object MethodLifter {
   class WhiteboxMacroImplementations(override val c: whitebox.Context) extends MacroImplementations(c) {
     import c.universe._
 
-    def deriveByName[Target: WeakTypeTag, AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy](methodName: Expr[String]): Tree = {
+    def deriveByName[Target: WeakTypeTag, IS <: InvocationStrategy](methodName: Expr[String])(aes: Expr[ArgumentExtractionStrategy]): Tree = {
       val Literal(Constant(name: String)) = methodName.tree
-      createLiftedMethod[Target, AES, IS](weakTypeOf[Target].member(TermName(name)).asMethod)
+      createLiftedMethod[Target, IS](aes, weakTypeOf[Target].member(TermName(name)).asMethod)
     }
   }
 }

@@ -7,26 +7,26 @@ object MethodAndTargetLifter {
   class MacroImplementations(override val c: blackbox.Context) extends MethodLifter.MacroImplementations(c) {
     import c.universe._
 
-    override protected def liftedParameters[Target: WeakTypeTag, Environment: WeakTypeTag]: Seq[Tree] =
-      Seq(q"environment: ${weakTypeOf[Environment]}")
+    override protected def liftedParameters[Target: WeakTypeTag](Environment: Type): Seq[Tree] =
+      Seq(q"environment: $Environment")
 
     override protected def liftedInvocationTarget[Target: WeakTypeTag](implicit strategy: Expr[FunctionLifter[_, _]]): Tree =
       extractUnnamed(c.Expr[ArgumentExtractionStrategy](q"$strategy.argumentExtractionStrategy"), weakTypeOf[Target])
 
-    override protected def liftedFunctionType[Target: WeakTypeTag, Environment: WeakTypeTag](method: MethodSymbol): c.universe.Type =
-      appliedType(symbolOf[_ => _], weakTypeOf[Environment], method.returnType)
+    override protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
+      appliedType(symbolOf[_ => _], Environment, method.returnType)
   }
 
   class WhiteboxMacroImplementations(override val c: whitebox.Context) extends MethodLifter.WhiteboxMacroImplementations(c) {
     import c.universe._
 
-    override protected def liftedParameters[Target: WeakTypeTag, Environment: WeakTypeTag]: Seq[Tree] =
-      Seq(q"environment: ${weakTypeOf[Environment]}")
+    override protected def liftedParameters[Target: WeakTypeTag](Environment: Type): Seq[Tree] =
+      Seq(q"environment: $Environment")
 
     override protected def liftedInvocationTarget[Target: WeakTypeTag](implicit strategy: Expr[FunctionLifter[_, _]]): Tree =
       extractUnnamed(c.Expr[ArgumentExtractionStrategy](q"$strategy.argumentExtractionStrategy"), weakTypeOf[Target])
 
-    override protected def liftedFunctionType[Target: WeakTypeTag, Environment: WeakTypeTag](method: MethodSymbol): c.universe.Type =
-      appliedType(symbolOf[_ => _], weakTypeOf[Environment], method.returnType)
+    override protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
+      appliedType(symbolOf[_ => _], Environment, method.returnType)
   }
 }
