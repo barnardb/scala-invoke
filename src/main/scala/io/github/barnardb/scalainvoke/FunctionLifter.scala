@@ -8,7 +8,7 @@ import io.github.barnardb.scalainvoke.macroutil.WeakTypeTagCorrector._
 
 object FunctionLifter {
 
-  private val functionApplyMethodPattern = raw"scala\.Function[0-9]+\.apply".r.anchored
+  private val functionApplyMethodNamePattern = raw"scala\.Function[0-9]+\.apply".r.anchored
 
   class MacroImplementations(val c: blackbox.Context) {
     import c.universe._
@@ -27,14 +27,17 @@ object FunctionLifter {
     }
 
     protected def extractParameter[Environment, R[_]](parameter: Symbol)(implicit strategy: Expr[FunctionLifter[Environment, R]]): Tree =
-      if (functionApplyMethodPattern.findFirstIn(parameter.owner.fullName).isDefined)
-        q"$strategy.extract[${parameter.typeSignature}](environment)"
+      if (functionApplyMethodNamePattern.findFirstIn(parameter.owner.fullName).isDefined)
+        extractUnnamed[Environment, R](parameter.typeSignature)
       else {
         val extractionMethod =
           if (parameter.isImplicit) TermName("extractImplicit")
           else TermName("extract")
         q"$strategy.$extractionMethod[${parameter.typeSignature}](environment, ${parameter.name.toString})"
       }
+
+    protected def extractUnnamed[Environment, R[_]](tpe: Type)(implicit strategy: Expr[FunctionLifter[Environment, R]]): Tree =
+      q"$strategy.extract[$tpe](environment)"
 
     protected def extractFunctionParamLists(tree: Tree): List[List[Symbol]] = tree match {
       case Function(params, _) => List(params.map(_.symbol))
@@ -131,6 +134,12 @@ class FunctionLifter[Environment, R[_]] {
   */
 
   /**
+   * Syntactic shortcut for Nothing in contravariant positions,
+   * used to mean "we don't care about this type and will accept anything" when _ doesn't cut it.
+   */
+  private type * = Nothing
+
+  /**
    * Lifts a function into one that takes an `Environment`, uses the strategy to extract arguments,
    * invokes the original underlying function, and returns the result.
    *
@@ -151,7 +160,7 @@ class FunctionLifter[Environment, R[_]] {
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
      */
     def apply(methodName: String): (Target, Environment) => _ =
-      macro MethodInvoker.WhiteboxMacroImplementations.deriveByName[Target, Environment, R]
+      macro MethodLifter.WhiteboxMacroImplementations.deriveByName[Target, Environment, R]
 
     /**
      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
@@ -160,13 +169,7 @@ class FunctionLifter[Environment, R[_]] {
      * @tparam A the method's result type
      */
     def apply[A](prototype: Target => FunctionReturning[A]): (Target, Environment) => A =
-      macro MethodInvoker.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target, Environment, R]
-
-    /**
-     * Syntactic shortcut for Nothing in contravariant positions,
-     * used to mean "we don't care about this type and will accept anything" when _ doesn't cut it.
-     */
-    private type * = Nothing
+      macro MethodLifter.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target, Environment, R]
 
     /**
      * These methods lift methods denoted by prototypes of the form {{{strategy.method[Target](_.methodOnTarget(_, _))}}}
@@ -174,26 +177,72 @@ class FunctionLifter[Environment, R[_]] {
      *
      * @tparam A the method's result type
      */
-    def apply[A](prototype: (Target, *)                                                             => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *)                                                          => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *)                                                       => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *)                                                    => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *)                                                 => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *)                                              => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *)                                           => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *)                                        => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *)                                     => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *)                                  => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *)                               => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *)                            => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *)                         => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                      => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                   => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)             => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)          => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)       => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)    => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodInvoker.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *)                                                             => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *)                                                          => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *)                                                       => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *)                                                    => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *)                                                 => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *)                                              => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *)                                           => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *)                                        => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *)                                     => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *)                                  => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *)                               => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *)                            => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *)                         => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                      => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                   => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)             => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)          => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)       => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)    => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): (Target, Environment) => A = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+  }
+
+  def liftMethodAndTarget[Target]: MethodAndTargetLifter[Target] = null  // no need to instantiate, since everything on the lifter is made of macro magic
+  final abstract class MethodAndTargetLifter[Target] {
+    /**
+     * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
+     */
+    def apply(methodName: String): Environment => _ =
+      macro MethodAndTargetLifter.WhiteboxMacroImplementations.deriveByName[Target, Environment, R]
+
+    /**
+     * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
+     * into functions that take an `Environment` and return a value of type `A`, extracting the target from the environment.
+     *
+     * @tparam A the method's result type
+     */
+    def apply[A](prototype: Target => FunctionReturning[A]): Environment => A =
+      macro MethodAndTargetLifter.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target, Environment, R]
+
+    /**
+     * These methods lift methods denoted by prototypes of the form {{{strategy.method[Target](_.methodOnTarget(_, _))}}}
+     * into functions that take an `Environment` and return a value of type `A`, extracting the target from the environment.
+     *
+     * @tparam A the method's result type
+     */
+    def apply[A](prototype: (Target, *)                                                             => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *)                                                          => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *)                                                       => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *)                                                    => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *)                                                 => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *)                                              => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *)                                           => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *)                                        => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *)                                     => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *)                                  => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *)                               => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *)                            => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *)                         => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                      => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                   => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)             => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)          => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)       => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)    => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A): Environment => A = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, Environment, R]
   }
 }

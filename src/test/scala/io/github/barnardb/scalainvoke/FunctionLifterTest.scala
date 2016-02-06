@@ -15,6 +15,9 @@ class FunctionLifterTest extends FunSuite {
     implicit object IntExtractor extends Extractor[Map[String, String], Int] {
       override def extract(a: Map[String, String], name: String): Int = a(name).toInt
     }
+    implicit object DemoClassExtractor extends UnnamedExtractor[Map[String, String], DemoClass] {
+      override def extract(a: Map[String, String]): DemoClass = new DemoClass(a("demo class name"))
+    }
   }
 
   val strategy = new FunctionLifter[Map[String, String], Id]
@@ -167,6 +170,15 @@ class FunctionLifterTest extends FunSuite {
     }
   }
 
+  test("invokes methods denoted by partial application, with target extraction") {
+    import TestExtractors._
+    val invoker = strategy.liftMethodAndTarget[DemoClass](_.foo _)
+
+    assertResult("[Linley] First: a, second: 42") {
+      invoker(Map("demo class name" -> "Linley", "first" -> "a", "second" -> "42")): String
+    }
+  }
+
   test("invokes methods denoted by prototype lambda") {
     import TestExtractors._
     val invoker = strategy.liftMethod[DemoClass](_.foo(_, _))
@@ -176,12 +188,30 @@ class FunctionLifterTest extends FunSuite {
     }
   }
 
+  test("invokes methods denoted by prototype lambda, with target extraction") {
+    import TestExtractors._
+    val invoker = strategy.liftMethodAndTarget[DemoClass](_.foo(_, _))
+
+    assertResult("[Linley] First: a, second: 42") {
+      invoker(Map("demo class name" -> "Linley", "first" -> "a", "second" -> "42")): String
+    }
+  }
+
   test("invokes methods denoted by name") {
     import TestExtractors._
     val invoker = strategy.liftMethod[DemoClass]("foo")
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new DemoClass("ha!"), Map("first" -> "a", "second" -> "42")): String
+    }
+  }
+
+  test("invokes methods denoted by name, with target extraction") {
+    import TestExtractors._
+    val invoker = strategy.liftMethodAndTarget[DemoClass]("foo")
+
+    assertResult("[Linley] First: a, second: 42") {
+      invoker(Map("demo class name" -> "Linley", "first" -> "a", "second" -> "42")): String
     }
   }
 

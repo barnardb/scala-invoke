@@ -8,10 +8,8 @@ with compile-time verification that you have an appropriate strategy for derivin
 Future Work
 -----------
 
-- For method invocations, it should be possible to extract the target from the environment.
-
 - It should be possible to get have multiple parameter extractions fail,
-  and get all of the errors. E.g., invoking an invocable that returns an `A` might return an `Either[Seq[String], () => _]`.
+  and get all of the errors. E.g., invoking an invocable that returns an `A` might return an `Either[Seq[String], () => A]`.
 
 - It should be possible to build function invokers where some parameters are manually specified.
 
