@@ -15,4 +15,6 @@ import scala.language.higherKinds
  *
  * @tparam R type constructor for the wrapped return type
  */
-trait InvocationStrategy[R[_]]
+trait InvocationStrategy {
+  type Wrapped[A]
+}

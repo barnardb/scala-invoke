@@ -1,7 +1,9 @@
 package io.github.barnardb.scalainvoke
 
-trait DeferredInvocation extends InvocationStrategy[Function0] {
+final class DeferredInvocation extends InvocationStrategy {
 
-  def wrapInvocation[T](invocation: => T): () => T = () => invocation
+  override type Wrapped[A] = () => A
+
+  def wrapInvocation[A](invocation: => A): () => A = () => invocation
 
 }
