@@ -10,10 +10,10 @@ object MethodAndTargetLifter {
     override protected def liftedParameters[Target: WeakTypeTag, Environment: WeakTypeTag]: Seq[Tree] =
       Seq(q"environment: ${weakTypeOf[Environment]}")
 
-    override protected def liftedInvocationTarget[Target: WeakTypeTag, Environment: WeakTypeTag, IS <: InvocationStrategy](implicit strategy: Expr[FunctionLifter[Environment, _, IS]]): Tree =
+    override protected def liftedInvocationTarget[Target: WeakTypeTag](implicit strategy: Expr[FunctionLifter[_, _]]): Tree =
       extractUnnamed(weakTypeOf[Target])
 
-    override protected def liftedFunctionType[Target: WeakTypeTag, Environment: WeakTypeTag, IS <: InvocationStrategy](method: MethodSymbol): c.universe.Type =
+    override protected def liftedFunctionType[Target: WeakTypeTag, Environment: WeakTypeTag](method: MethodSymbol): c.universe.Type =
       appliedType(symbolOf[_ => _], weakTypeOf[Environment], method.returnType)
   }
 
@@ -23,10 +23,10 @@ object MethodAndTargetLifter {
     override protected def liftedParameters[Target: WeakTypeTag, Environment: WeakTypeTag]: Seq[Tree] =
       Seq(q"environment: ${weakTypeOf[Environment]}")
 
-    override protected def liftedInvocationTarget[Target: WeakTypeTag, Environment: WeakTypeTag, IS <: InvocationStrategy](implicit strategy: Expr[FunctionLifter[Environment, _, IS]]): Tree =
+    override protected def liftedInvocationTarget[Target: WeakTypeTag](implicit strategy: Expr[FunctionLifter[_, _]]): Tree =
       extractUnnamed(weakTypeOf[Target])
 
-    override protected def liftedFunctionType[Target: WeakTypeTag, Environment: WeakTypeTag, IS <: InvocationStrategy](method: MethodSymbol): c.universe.Type =
+    override protected def liftedFunctionType[Target: WeakTypeTag, Environment: WeakTypeTag](method: MethodSymbol): c.universe.Type =
       appliedType(symbolOf[_ => _], weakTypeOf[Environment], method.returnType)
   }
 }
