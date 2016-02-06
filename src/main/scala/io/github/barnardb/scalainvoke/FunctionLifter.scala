@@ -14,14 +14,6 @@ object FunctionLifter {
     protected def typecheckedExpr[T: WeakTypeTag](tree: Tree): Expr[T] =
       c.Expr[T](c.typecheck(tree, pt = weakTypeOf[T]))
 
-    protected def findStrategy(tree: Tree = c.prefix.tree): Expr[FunctionLifter[_]] =
-      if (tree.tpe.baseType(symbolOf[FunctionLifter[_]]) != NoType) c.Expr(tree)
-      else tree match {
-        case           Select(prefix, _)     => findStrategy(prefix)
-        case TypeApply(Select(prefix, _), _) => findStrategy(prefix)
-        case _ => c.abort(c.prefix.tree.pos, s"Can't find the InvocationStrategy in prefix. Prefix tree: ${showRaw(c.prefix.tree)}")
-      }
-
     protected def extractParameter(aes: Expr[ArgumentExtractionStrategy], parameter: Symbol): Tree =
       if (functionApplyMethodNamePattern.findFirstIn(parameter.owner.fullName).isDefined)
         extractUnnamed(aes, parameter.typeSignature)
@@ -44,13 +36,12 @@ object FunctionLifter {
         typeSignature.member(TermName("apply")).typeSignatureIn(typeSignature).paramLists
     }
 
-    protected def createLiftedFunction[IS <: InvocationStrategy : WeakTypeTag, A: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy], function: Tree, parameterLists: List[List[Symbol]]): Expr[aes.value.Environment => IS#Wrapped[A]] = c.Expr {
+    protected def createLiftedFunction[A: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy], is: Expr[InvocationStrategy], function: Tree, parameterLists: List[List[Symbol]]): Expr[aes.value.Environment => is.value.Wrapped[A]] = c.Expr[aes.value.Environment => is.value.Wrapped[A]] {
       implicit val Environment = aes.actualType.member(TypeName("Environment")).asType.typeSignatureIn(aes.actualType)
-      implicit val WrappedReturnType = appliedType(weakTypeOf[IS].member(TypeName("Wrapped")).asType.typeSignatureIn(weakTypeOf[IS]), List(weakTypeOf[A]))
-      implicit val strategy = findStrategy()
+      implicit val WrappedReturnType = appliedType(is.actualType.member(TypeName("Wrapped")).asType.typeSignatureIn(is.actualType), List(weakTypeOf[A]))
       val namedParameterLists = parameterLists.map(_.map(p => c.freshName(p.name.asInstanceOf[TermName]) -> p))
       val invocation = q"$function(...${namedParameterLists.map(_.map{case (name, _) => q"$name"})})"
-      val wrappedInvocation = q"$strategy.invocationStrategy.wrapInvocation[${weakTypeOf[A]}]($invocation)"
+      val wrappedInvocation = q"$is.wrapInvocation[${weakTypeOf[A]}]($invocation)"
       c.typecheck(
         tree =
 //          $function(...${namedParameterLists.map(_.map{case (name, _) => q"$strategy.unwrap($name)"})})
@@ -62,13 +53,13 @@ object FunctionLifter {
       )
     }
 
-    def liftImpl[IS <: InvocationStrategy : WeakTypeTag, A: WeakTypeTag](function: Expr[_])(aes: Expr[ArgumentExtractionStrategy]): Expr[aes.value.Environment => IS#Wrapped[A]] = function.tree match {
+    def liftImpl[A: WeakTypeTag](function: Expr[_])(aes: Expr[ArgumentExtractionStrategy], is: Expr[InvocationStrategy]): Expr[aes.value.Environment => is.value.Wrapped[A]] = function.tree match {
       case Block(stats, expr) =>
         import c.internal._, decorators._
-        val lifted = liftImpl[IS, A](c.Expr(expr))(aes)
-        c.Expr(Block(stats, lifted.tree) setType lifted.actualType)
+        val lifted = liftImpl[A](c.Expr(expr))(aes, is)
+        c.Expr[aes.value.Environment => is.value.Wrapped[A]](Block(stats, lifted.tree) setType lifted.actualType)
       case Apply(TypeApply(Select(Select(This(TypeName("scalainvoke")), TermName("FunctionReturning")), TermName("apply")), List(_)), List(unwrappedFunction)) =>
-        createLiftedFunction[IS, A](aes, OwnerChainCorrector.splice(c)(unwrappedFunction), extractFunctionParamLists(unwrappedFunction))
+        createLiftedFunction[A](aes, is, OwnerChainCorrector.splice(c)(unwrappedFunction), extractFunctionParamLists(unwrappedFunction))
       case t =>
         c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
     }
@@ -80,10 +71,9 @@ object FunctionLifter {
         .getOrElse(c.abort(c.enclosingPosition, s"None of the ${constructors.length} constructor(s) in $tpe seem to be accessible"))
     }
 
-    def liftConstructorImpl[IS <: InvocationStrategy : WeakTypeTag, A: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy]): Expr[aes.value.Environment => IS#Wrapped[A]] = {
+    def liftConstructorImpl[A: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy], is: Expr[InvocationStrategy]): Expr[aes.value.Environment => is.value.Wrapped[A]] = {
       val A = weakTypeOf[A]
-      createLiftedFunction[IS, A](
-        aes            = aes,
+      createLiftedFunction[A](aes, is,
         function       = Select(New(TypeTree(A)), termNames.CONSTRUCTOR),
         parameterLists = firstAccessibleConstructorIn(A).paramLists
       )
@@ -123,7 +113,7 @@ object FunctionLifter {
  *
  * [[liftConstructor]] lifts the first accessible constructor of a class type.
  */
-class FunctionLifter[IS <: InvocationStrategy](val invocationStrategy: IS) {
+class FunctionLifter {
 
   /* Conceptual methods (see class documentation above)
   def extract[A](environment: Environment, name: String): A
@@ -142,22 +132,22 @@ class FunctionLifter[IS <: InvocationStrategy](val invocationStrategy: IS) {
    *
    * @tparam A the function's result type
    */
-  def lift[A](function: FunctionReturning[A])(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro FunctionLifter.MacroImplementations.liftImpl[IS, A]
+  def lift[A](function: FunctionReturning[A])(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro FunctionLifter.MacroImplementations.liftImpl[A]
 
   /**
    * Lifts the first accessible constructor for class `A` into a function that takes an `Environment`,
    * uses the strategy to extract arguments, invokes the constructor, and returns the new instance.
    */
-  def liftConstructor[A](implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] =
-    macro FunctionLifter.MacroImplementations.liftConstructorImpl[IS, A]
+  def liftConstructor[A](implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] =
+    macro FunctionLifter.MacroImplementations.liftConstructorImpl[A]
 
   def liftMethod[Target]: MethodLifter[Target] = null  // no need to instantiate, since everything on the lifter is made of macro magic
   final abstract class MethodLifter[Target] {
     /**
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
      */
-    def apply(methodName: String)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[_] =
-      macro MethodLifter.WhiteboxMacroImplementations.deriveByName[Target, IS]
+    def apply(methodName: String)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[_] =
+      macro MethodLifter.WhiteboxMacroImplementations.deriveByName[Target]
 
     /**
      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
@@ -165,8 +155,8 @@ class FunctionLifter[IS <: InvocationStrategy](val invocationStrategy: IS) {
      *
      * @tparam A the method's result type
      */
-    def apply[A](prototype: Target => FunctionReturning[A])(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] =
-      macro MethodLifter.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target, IS]
+    def apply[A](prototype: Target => FunctionReturning[A])(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] =
+      macro MethodLifter.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target]
 
     /**
      * These methods lift methods denoted by prototypes of the form {{{strategy.method[Target](_.methodOnTarget(_, _))}}}
@@ -174,27 +164,27 @@ class FunctionLifter[IS <: InvocationStrategy](val invocationStrategy: IS) {
      *
      * @tparam A the method's result type
      */
-    def apply[A](prototype: (Target, *)                                                             => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *)                                                          => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *)                                                       => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *)                                                    => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *)                                                 => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *)                                              => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *)                                           => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *)                                        => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *)                                     => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *)                                  => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *)                               => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *)                            => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *)                         => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                      => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                   => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)             => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)          => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)       => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)    => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A)(implicit aes: ArgumentExtractionStrategy): (Target, aes.Environment) => IS#Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target, IS]
+    def apply[A](prototype: (Target, *)                                                             => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *)                                                          => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *)                                                       => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *)                                                    => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *)                                                 => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *)                                              => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *)                                           => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *)                                        => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *)                                     => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *)                                  => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *)                               => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *)                            => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *)                         => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                      => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                   => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)             => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)          => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)       => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)    => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): (Target, aes.Environment) => is.Wrapped[A] = macro MethodLifter.MacroImplementations.deriveFromPrototype[Target]
   }
 
   def liftMethodAndTarget[Target]: MethodAndTargetLifter[Target] = null  // no need to instantiate, since everything on the lifter is made of macro magic
@@ -202,8 +192,8 @@ class FunctionLifter[IS <: InvocationStrategy](val invocationStrategy: IS) {
     /**
      * Builds method invokers from prototypes of the form {{{strategy.method[A]("methodOnA")}}}
      */
-    def apply(methodName: String)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[_] =
-      macro MethodAndTargetLifter.WhiteboxMacroImplementations.deriveByName[Target, IS]
+    def apply(methodName: String)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[_] =
+      macro MethodAndTargetLifter.WhiteboxMacroImplementations.deriveByName[Target]
 
     /**
      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
@@ -211,8 +201,8 @@ class FunctionLifter[IS <: InvocationStrategy](val invocationStrategy: IS) {
      *
      * @tparam A the method's result type
      */
-    def apply[A](prototype: Target => FunctionReturning[A])(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] =
-      macro MethodAndTargetLifter.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target, IS]
+    def apply[A](prototype: Target => FunctionReturning[A])(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] =
+      macro MethodAndTargetLifter.MacroImplementations.liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target]
 
     /**
      * These methods lift methods denoted by prototypes of the form {{{strategy.method[Target](_.methodOnTarget(_, _))}}}
@@ -220,26 +210,26 @@ class FunctionLifter[IS <: InvocationStrategy](val invocationStrategy: IS) {
      *
      * @tparam A the method's result type
      */
-    def apply[A](prototype: (Target, *)                                                             => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *)                                                          => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *)                                                       => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *)                                                    => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *)                                                 => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *)                                              => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *)                                           => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *)                                        => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *)                                     => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *)                                  => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *)                               => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *)                            => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *)                         => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                      => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                   => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)             => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)          => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)       => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)    => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
-    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A)(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target, IS]
+    def apply[A](prototype: (Target, *)                                                             => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *)                                                          => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *)                                                       => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *)                                                    => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *)                                                 => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *)                                              => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *)                                           => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *)                                        => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *)                                     => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *)                                  => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *)                               => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *)                            => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *)                         => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                      => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                   => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)                => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)             => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)          => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)       => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *)    => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
+    def apply[A](prototype: (Target, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *, *) => A)(implicit aes: ArgumentExtractionStrategy, is: InvocationStrategy): aes.Environment => is.Wrapped[A] = macro MethodAndTargetLifter.MacroImplementations.deriveFromPrototype[Target]
   }
 }

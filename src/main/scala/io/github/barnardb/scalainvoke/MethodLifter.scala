@@ -16,7 +16,7 @@ object MethodLifter {
     protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
       appliedType(symbolOf[(_, _) => _], weakTypeOf[Target], Environment, method.returnType)
 
-    protected def createLiftedMethod[Target: WeakTypeTag, IS <: InvocationStrategy : WeakTypeTag](aes: Expr[ArgumentExtractionStrategy], method: MethodSymbol): Tree = {
+    protected def createLiftedMethod[Target: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy], is: Expr[InvocationStrategy], method: MethodSymbol): Tree = {
       implicit val Environment = aes.actualType.member(TypeName("Environment")).asType.typeSignatureIn(aes.actualType)
       require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
       c.typecheck(
@@ -27,23 +27,23 @@ object MethodLifter {
 
 
 
-    def deriveFromPrototype[Target: WeakTypeTag, IS <: InvocationStrategy](prototype: Tree)(aes: Expr[ArgumentExtractionStrategy]): Tree = {
+    def deriveFromPrototype[Target: WeakTypeTag](prototype: Tree)(aes: Expr[ArgumentExtractionStrategy], is: Expr[InvocationStrategy]): Tree = {
       val Function(_, Apply(methodSelection, _)) = prototype
-      createLiftedMethod[Target, IS](aes, methodSelection.symbol.asMethod)
+      createLiftedMethod[Target](aes, is, methodSelection.symbol.asMethod)
     }
 
-    def liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target: WeakTypeTag, IS <: InvocationStrategy](prototype: Tree)(aes: Expr[ArgumentExtractionStrategy]): Tree = {
+    def liftMethodImplFromFunctionReturningWrappedEtaExpansion[Target: WeakTypeTag](prototype: Tree)(aes: Expr[ArgumentExtractionStrategy], is: Expr[InvocationStrategy]): Tree = {
       val Function(List(_), Apply(_, List(Block(List(), Function(_, Apply(methodSelection, _)))))) = prototype
-      createLiftedMethod[Target, IS](aes, methodSelection.symbol.asMethod)
+      createLiftedMethod[Target](aes, is, methodSelection.symbol.asMethod)
     }
   }
 
   class WhiteboxMacroImplementations(override val c: whitebox.Context) extends MacroImplementations(c) {
     import c.universe._
 
-    def deriveByName[Target: WeakTypeTag, IS <: InvocationStrategy](methodName: Expr[String])(aes: Expr[ArgumentExtractionStrategy]): Tree = {
+    def deriveByName[Target: WeakTypeTag](methodName: Expr[String])(aes: Expr[ArgumentExtractionStrategy], is: Expr[InvocationStrategy]): Tree = {
       val Literal(Constant(name: String)) = methodName.tree
-      createLiftedMethod[Target, IS](aes, weakTypeOf[Target].member(TermName(name)).asMethod)
+      createLiftedMethod[Target](aes, is, weakTypeOf[Target].member(TermName(name)).asMethod)
     }
   }
 }
