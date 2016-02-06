@@ -15,4 +15,6 @@ package io.github.barnardb.scalainvoke
  *
  * @tparam E "environment" type from which values can be extracted
  */
-trait ArgumentExtractionStrategy[E]
+trait ArgumentExtractionStrategy {
+  type Environment
+}

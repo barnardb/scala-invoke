@@ -20,8 +20,7 @@ class FunctionLifterTest extends FunSuite {
     }
   }
 
-  val strategy = new FunctionLifter[Map[String, String], DirectInvocation](new DirectInvocation)
-    with ImplicitArgumentExtractors[Map[String, String]]
+  val strategy = new FunctionLifter[Map[String, String], ImplicitArgumentExtractors[Map[String, String]], DirectInvocation](new ImplicitArgumentExtractors[Map[String, String]], new DirectInvocation)
 
   test("lifts inline function literals") {
     import TestExtractors._
