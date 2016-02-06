@@ -62,14 +62,32 @@ object FunctionLifter {
       )
     }
 
-    def liftImpl[AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy : WeakTypeTag, A: WeakTypeTag](function: Tree): Expr[AES#Environment => IS#Wrapped[A]] = function match {
+    protected def createLiftedFunction[AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy : WeakTypeTag, A: WeakTypeTag](aes: Expr[AES], function: Tree, parameterLists: List[List[Symbol]]): Expr[aes.value.Environment => IS#Wrapped[A]] = c.Expr {
+      implicit val wttEnvironment: WeakTypeTag[AES#Environment] = c.WeakTypeTag[AES#Environment](aes.actualType.member(TypeName("Environment")).asType.typeSignatureIn(aes.actualType))
+      implicit val wttra: WeakTypeTag[IS#Wrapped[A]] = c.WeakTypeTag[IS#Wrapped[A]](appliedType(weakTypeOf[IS].member(TypeName("Wrapped")).asType.typeSignatureIn(weakTypeOf[IS]), List(weakTypeOf[A])))
+      implicit val strategy = findStrategy()
+      val namedParameterLists = parameterLists.map(_.map(p => c.freshName(p.name.asInstanceOf[TermName]) -> p))
+      val invocation = q"$function(...${namedParameterLists.map(_.map{case (name, _) => q"$name"})})"
+      val wrappedInvocation = q"$strategy.invocationStrategy.wrapInvocation[${weakTypeOf[A]}]($invocation)"
+      c.typecheck(
+        tree =
+//          $function(...${namedParameterLists.map(_.map{case (name, _) => q"$strategy.unwrap($name)"})})
+          q"""(environment: ${weakTypeOf[AES#Environment]}) => {
+              ..${namedParameterLists.flatten.map {case (name, sym) => q"val $name = ${extractParameter(sym)}"}}
+              $wrappedInvocation
+          }""",
+        pt = weakTypeOf[AES#Environment => IS#Wrapped[A]]
+      )
+    }
+
+    def liftImpl[AES <: ArgumentExtractionStrategy : WeakTypeTag, IS <: InvocationStrategy : WeakTypeTag, A: WeakTypeTag](function: Expr[_])(aes: Expr[AES]): Expr[aes.value.Environment => IS#Wrapped[A]] = function.tree match {
       case Block(stats, expr) =>
         import c.internal._, decorators._
-        implicit val wttEnvironment: WeakTypeTag[AES#Environment] = c.WeakTypeTag[AES#Environment](weakTypeOf[AES].member(TypeName("Environment")).asType.typeSignatureIn(weakTypeOf[AES]))
+        implicit val wttEnvironment: WeakTypeTag[AES#Environment] = c.WeakTypeTag[AES#Environment](aes.actualType.member(TypeName("Environment")).asType.typeSignatureIn(aes.actualType))
         implicit val wttra: WeakTypeTag[IS#Wrapped[A]] = c.WeakTypeTag[IS#Wrapped[A]](c.universe.appliedType(weakTypeOf[IS].member(TypeName("Wrapped")).asType.typeSignatureIn(weakTypeOf[IS]).dealias, List(c.weakTypeOf[A])))
-        c.Expr(Block(stats, liftImpl[AES, IS, A](expr).tree) setType weakTypeOf[AES#Environment => IS#Wrapped[A]])
+        c.Expr(Block(stats, liftImpl[AES, IS, A](c.Expr(expr))(aes).tree) setType weakTypeOf[AES#Environment => IS#Wrapped[A]])
       case Apply(TypeApply(Select(Select(This(TypeName("scalainvoke")), TermName("FunctionReturning")), TermName("apply")), List(_)), List(unwrappedFunction)) =>
-        createLiftedFunction[AES, IS, A](OwnerChainCorrector.splice(c)(unwrappedFunction), extractFunctionParamLists(unwrappedFunction))
+        createLiftedFunction[AES, IS, A](aes, OwnerChainCorrector.splice(c)(unwrappedFunction), extractFunctionParamLists(unwrappedFunction))
       case t =>
         c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
     }
@@ -142,7 +160,7 @@ class FunctionLifter[AES <: ArgumentExtractionStrategy, IS <: InvocationStrategy
    *
    * @tparam A the function's result type
    */
-  def lift[A](function: FunctionReturning[A]): AES#Environment => IS#Wrapped[A] = macro FunctionLifter.MacroImplementations.liftImpl[AES, IS, A]
+  def lift[A](function: FunctionReturning[A])(implicit aes: ArgumentExtractionStrategy): aes.Environment => IS#Wrapped[A] = macro FunctionLifter.MacroImplementations.liftImpl[aes.type, IS, A]
 
   /**
    * Lifts the first accessible constructor for class `A` into a function that takes an `Environment`,
