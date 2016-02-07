@@ -118,13 +118,13 @@ object Lift {
       )
     }
 
-    final def liftFunction[A: WeakTypeTag](function: Expr[_])(ves: Expr[ValueExtractionStrategy], is: Expr[InvocationStrategy]): Expr[ves.value.Environment => is.value.Invocation[A]] = function.tree match {
+    final def liftFunction[F: WeakTypeTag, A: WeakTypeTag](function: Expr[F])(evidence: Expr[FunctionReturning[F, A]], ves: Expr[ValueExtractionStrategy], is: Expr[InvocationStrategy]): Expr[ves.value.Environment => is.value.Invocation[A]] = function.tree match {
       case Block(stats, expr) =>
         import c.internal._, decorators._
-        val lifted = liftFunction[A](c.Expr(expr))(ves, is)
+        val lifted = liftFunction[F, A](c.Expr(expr))(evidence, ves, is)
         c.Expr[ves.value.Environment => is.value.Invocation[A]](Block(stats, lifted.tree) setType lifted.actualType)
-      case Apply(TypeApply(Select(Select(This(TypeName("scalainvoke")), TermName("FunctionReturning")), TermName("apply")), List(_)), List(unwrappedFunction)) =>
-        createLiftedFunction[A](ves, is, OwnerChainCorrector.splice(c)(unwrappedFunction), extractFunctionParamLists(unwrappedFunction))
+      case Function(_, _) | Typed(Function(_, _), _) | Ident(TermName(_)) =>
+        createLiftedFunction[A](ves, is, OwnerChainCorrector.splice(c)(function.tree), extractFunctionParamLists(function.tree))
       case t =>
         c.abort(t.pos, s"Don't know how to lift $t\nRaw Tree: ${showRaw(t)}")
     }
@@ -153,12 +153,13 @@ object Lift {
   private type * = Nothing
 
   /**
-   * Lifts a function into one that takes an `Environment`, uses the strategy to extract arguments,
-   * invokes the original underlying function, and returns the result.
-   *
-   * @tparam A the function's result type
-   */
-  def function[A](function: FunctionReturning[A])(implicit ves: ValueExtractionStrategy, is: InvocationStrategy): ves.Environment => is.Invocation[A] = macro Lift.MacroImplementations.liftFunction[A]
+    * Lifts a function into one that takes an `Environment`, uses the strategy to extract arguments,
+    * invokes the original underlying function, and returns the result.
+    *
+    * @tparam F the function type
+    * @tparam A the function's result type
+    */
+  def function[F, A](function: F)(implicit evidence: FunctionReturning[F, A], ves: ValueExtractionStrategy, is: InvocationStrategy): ves.Environment => is.Invocation[A] = macro Lift.MacroImplementations.liftFunction[F, A]
 
   /**
    * Lifts the first accessible constructor for class `A` into a function that takes an `Environment`,
@@ -177,13 +178,14 @@ object Lift {
       macro MethodLifter.WhiteboxMacroImplementations.liftFromName[Target]
 
     /**
-     * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
-     * into binary functions that take a `Target` and an `Environment` and return a value of type `A`.
-     *
-     * @tparam A the method's result type
-     */
-    def apply[A](prototype: Target => FunctionReturning[A])(implicit ves: ValueExtractionStrategy, is: InvocationStrategy): (Target, ves.Environment) => is.Invocation[A] =
-      macro MethodLifter.MacroImplementations.liftFromWrappedEtaExpansion[Target]
+      * Lifts methods denoted by eta-expansion prototypes of the form {{{strategy.method[Target](_.methodOnTarget _)}}}
+      * into binary functions that take a `Target` and an `Environment` and return a value of type `A`.
+      *
+      * @tparam F the type of the methods's eta expansion
+      * @tparam A the method's result type
+      */
+    def apply[F, A](prototype: Target => F)(implicit evidence: FunctionReturning[F, A], ves: ValueExtractionStrategy, is: InvocationStrategy): (Target, ves.Environment) => is.Invocation[A] =
+      macro MethodLifter.MacroImplementations.liftFromEtaExpansion[Target, F, A]
 
     /**
      * These methods lift methods denoted by prototypes of the form {{{strategy.method[Target](_.methodOnTarget(_, _))}}}
@@ -239,8 +241,8 @@ object Lift {
         createLiftedMethod[Target](ves, is, methodSelection.symbol.asMethod)
       }
 
-      final def liftFromWrappedEtaExpansion[Target: WeakTypeTag](prototype: Tree)(ves: Expr[ValueExtractionStrategy], is: Expr[InvocationStrategy]): Tree = {
-        val Function(List(_), Apply(_, List(Block(List(), Function(_, Apply(methodSelection, _)))))) = prototype
+      final def liftFromEtaExpansion[Target: WeakTypeTag, F: WeakTypeTag, A: WeakTypeTag](prototype: Tree)(evidence: Expr[FunctionReturning[F, A]], ves: Expr[ValueExtractionStrategy], is: Expr[InvocationStrategy]): Tree = {
+        val Function(List(_), Block(List(), Function(_/*params*/, Apply(methodSelection, _/*args*/)))) = prototype
         createLiftedMethod[Target](ves, is, methodSelection.symbol.asMethod)
       }
     }
@@ -270,8 +272,8 @@ object Lift {
      *
      * @tparam A the method's result type
      */
-    def apply[A](prototype: Target => FunctionReturning[A])(implicit ves: ValueExtractionStrategy, is: InvocationStrategy): ves.Environment => is.Invocation[A] =
-      macro MethodAsFunctionLifter.WhiteboxMacroImplementations.liftFromWrappedEtaExpansion[Target]
+    def apply[F, A](prototype: Target => F)(implicit evidence: FunctionReturning[F, A], ves: ValueExtractionStrategy, is: InvocationStrategy): ves.Environment => is.Invocation[A] =
+      macro MethodAsFunctionLifter.WhiteboxMacroImplementations.liftFromEtaExpansion[Target, F, A]
 
     /**
      * These methods lift methods denoted by prototypes of the form {{{strategy.method[Target](_.methodOnTarget(_, _))}}}

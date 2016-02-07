@@ -56,3 +56,5 @@ scalacOptions := Seq(
 scalacOptions in Test := (scalacOptions in Test).value filterNot (_ == "-Ywarn-dead-code")
 
 testOptions in Test += Tests.Argument("-oF")
+
+autoAPIMappings := true
