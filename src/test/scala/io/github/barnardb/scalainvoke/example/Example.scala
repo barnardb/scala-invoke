@@ -24,7 +24,7 @@ object Example extends App {
     s"Do something $path-ish with $weight of $material" -> weight * 2
 
   // This should happen once, somewhere in the setup of the program
-  private[this] final val liftedAction = FunctionLifter.function(action _)
+  private[this] final val liftedAction = Lift.function(action _)
 
   // Because we are using DeferredExecution, we have a 2-step process to invoke.
   // Passing the environment to the lifted action causes the parameters to be extracted and an invoker to be returned.

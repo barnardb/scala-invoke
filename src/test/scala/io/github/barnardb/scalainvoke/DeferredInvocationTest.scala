@@ -20,7 +20,7 @@ class DeferredInvocationTest extends FunSuite {
 
   test("lifted method application extracts parameters immediately but defers execution") {
     var stage = "lifting stage"
-    val lifted = FunctionLifter.function((boxed: String) => s"param extracted during $boxed, evaluated during $stage")
+    val lifted = Lift.function((boxed: String) => s"param extracted during $boxed, evaluated during $stage")
 
     stage = "primary invocation stage"
     val box = new Var("primary invocation")
