@@ -3,8 +3,11 @@ package io.github.barnardb.scalainvoke
 /**
   * Evidence that function type {{{F}}} has return type {{{R}}}
   *
-  * This allows method signatures to be expressed that accept functions of any arity while constraining their return types,
-  * which allows us to work around some typing quirks that I couldn't get around with overloaded methods.
+  * This allows method signatures to be expressed that accept functions that return functions of arbitrary arity while
+  * capturing their return types.
+  *
+  * See e.g. the `apply` variant on [[Lift.MethodLifter]] that implements the support for lifting expressions like
+  * `Lift.method[A](_.etaExpansionOfMethodOnA _)`.
   *
   * @tparam F a function type (one of [[scala.Function0]] through [[scala.Function22]])
   * @tparam R the return type of {{{F}}}

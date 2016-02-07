@@ -113,7 +113,7 @@ class LiftTest extends FunSuite {
     }
   }
 
-  test("lifts function literals defined in a block that reference a lazy val in the block (i.e., prevents owner chain corruption without taking untypecheck shortcuts)") {
+  test("lifts function literals defined in a block that references a lazy val in the block (i.e., prevents owner chain corruption without taking untypecheck shortcuts)") {
     import TestExtractors._
     val invoker = Lift.function({
       lazy val tricksy: String = "I'm forcing you to deal with owner chain corruption without resorting to untypecheck"

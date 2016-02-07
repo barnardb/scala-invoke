@@ -86,9 +86,7 @@ object Lift {
       if (functionApplyMethodNamePattern.findFirstIn(parameter.owner.fullName).isDefined)
         extractUnnamedValue(ves, parameter.typeSignature)
       else {
-        val extractionMethod =
-          if (parameter.isImplicit) TermName("extractImplicit")
-          else TermName("extract")
+        val extractionMethod = TermName(if (parameter.isImplicit) "extractImplicit" else "extract")
         q"$ves.$extractionMethod[${parameter.typeSignature}](environment, ${parameter.name.toString})"
       }
 
@@ -102,19 +100,18 @@ object Lift {
     }
 
     private final def createLiftedFunction[A: WeakTypeTag](ves: Expr[ValueExtractionStrategy], is: Expr[InvocationStrategy], function: Tree, parameterLists: List[List[Symbol]]): Expr[ves.value.Environment => is.value.Invocation[A]] = c.Expr[ves.value.Environment => is.value.Invocation[A]] {
-      implicit val Environment = ves.actualType.member(symbolOf[ves.value.Environment].name).asType.typeSignatureIn(ves.actualType)
-      implicit val WrappedReturnType = appliedType(is.actualType.member(symbolOf[is.value.Invocation[_]].name).asType.typeSignatureIn(is.actualType), List(weakTypeOf[A]))
       val namedParameterLists = parameterLists.map(_.map(p => c.freshName(p.name.asInstanceOf[TermName]) -> p))
-      val invocation = q"$function(...${namedParameterLists.map(_.map{case (name, _) => q"$name"})})"
-      val wrappedInvocation = q"$is.wrapInvocation[${weakTypeOf[A]}]($invocation)"
+      val rawInvocation = q"$function(...${namedParameterLists.map(_.map{case (name, _) => q"$name"})})"
+      val wrappedInvocation = q"$is.wrapInvocation[${weakTypeOf[A]}]($rawInvocation)"
+      implicit val wrappedInvocationType = appliedType(is.actualType.member(symbolOf[is.value.Invocation[_]].name).asType.typeSignatureIn(is.actualType), List(weakTypeOf[A]))
+      implicit val Environment = ves.actualType.member(symbolOf[ves.value.Environment].name).asType.typeSignatureIn(ves.actualType)
       c.typecheck(
         tree =
-//          $function(...${namedParameterLists.map(_.map{case (name, _) => q"$strategy.unwrap($name)"})})
           q"""(environment: $Environment) => {
               ..${namedParameterLists.flatten.map {case (name, sym) => q"val $name = ${extractArgument(ves, sym)}"}}
               $wrappedInvocation
           }""",
-        pt = appliedType(typeOf[_ => _], Environment, WrappedReturnType)
+        pt = appliedType(typeOf[_ => _], Environment, wrappedInvocationType)
       )
     }
 
@@ -221,19 +218,26 @@ object Lift {
     class MacroImplementations(override val c: blackbox.Context) extends Lift.MacroImplementations(c) {
       import c.universe._
 
-      protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
-        appliedType(symbolOf[(_, _) => _], weakTypeOf[Target], Environment, method.returnType)
+      protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, invocationType: Type): c.universe.Type =
+        appliedType(symbolOf[(_, _) => _], weakTypeOf[Target], Environment, invocationType)
 
       protected def createMethodInvoker(Target: Type, Environment: Type, ves: Expr[ValueExtractionStrategy], invokeOnTarget: Tree => Tree) =
         q"""(target: $Target, environment: $Environment) => ${invokeOnTarget(q"target")}"""
 
       protected final def createLiftedMethod[Target: WeakTypeTag](ves: Expr[ValueExtractionStrategy], is: Expr[InvocationStrategy], method: MethodSymbol): Tree = {
         require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
+        val namedParameterLists = method.paramLists.map(_.map(p => c.freshName(p.name.asInstanceOf[TermName]) -> p))
+
         val Environment = ves.actualType.member(TypeName("Environment")).asType.typeSignatureIn(ves.actualType)
-        val invoker = createMethodInvoker(weakTypeOf[Target], Environment, ves,
-          target => q"""$target.$method(...${method.paramLists.map(_.map(extractArgument(ves, _)))})"""
-        )
-        c.typecheck(invoker, pt = liftedFunctionType[Target](Environment, method))
+        val invoker = createMethodInvoker(weakTypeOf[Target], Environment, ves, { target =>
+          val rawInvocation = q"""$target.$method(...${namedParameterLists.map(_.map{case (name, _) => q"$name"})})"""
+          q"""{
+            ..${namedParameterLists.flatten.map { case (name, sym) => q"val $name = ${extractArgument(ves, sym)}" }}
+            $is.wrapInvocation[${method.returnType}]($rawInvocation)
+          }"""
+        })
+        implicit val wrappedInvocationType = appliedType(is.actualType.member(symbolOf[is.value.Invocation[_]].name).asType.typeSignatureIn(is.actualType), List(method.returnType))
+        c.typecheck(invoker, pt = liftedFunctionType[Target](Environment, wrappedInvocationType))
       }
 
       final def liftFromPrototype[Target: WeakTypeTag](prototype: Tree)(ves: Expr[ValueExtractionStrategy], is: Expr[InvocationStrategy]): Tree = {
@@ -312,8 +316,8 @@ object Lift {
       override def createMethodInvoker(Target: Type, Environment: Type, ves: Expr[ValueExtractionStrategy], invokeOnTarget: Tree => Tree) =
         q"""(environment: $Environment) => ${invokeOnTarget(q"$ves.extract[$Target](environment)")}"""
 
-      override def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
-        appliedType(symbolOf[_ => _], Environment, method.returnType)
+      override def liftedFunctionType[Target: WeakTypeTag](Environment: Type, invocationType: Type): c.universe.Type =
+        appliedType(symbolOf[_ => _], Environment, invocationType)
 
     }
 
