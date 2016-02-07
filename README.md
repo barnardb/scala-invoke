@@ -56,12 +56,15 @@ object Example extends App {
 Future Work
 -----------
 
-- It should be possible to get have multiple parameter extractions fail,
-  and get all of the errors. E.g., invoking an invocable that returns an `A` might return an `Either[Seq[String], () => A]`.
+- It should be possible to have multiple parameter extractions fail,
+  and get all of the errors.
+  E.g., one might want a strategy that makes the lifted signature for an invocable that returns `A` be something like
+  `Environment => Either[Seq[String], A]` with direct invocation, or
+  `Environment => Either[Seq[String], () => A]` with deferred invocation.
 
 - It should be possible to build function invokers where some parameters are manually specified.
 
-- More concrete invocation strategies should be provided,
-  both for direct use and to demonstrate how users might create their own strategies.
+- More concrete strategies should be provided,
+  both for direct use and to demonstrate how users might create their own.
 
 - Put more effort into minimizing byte code mess.
