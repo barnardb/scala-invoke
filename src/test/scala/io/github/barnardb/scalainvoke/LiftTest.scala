@@ -9,18 +9,18 @@ class LiftTest extends FunSuite {
   }
 
   object TestExtractors {
-    implicit object StringExtractor extends NamedExtractor[Map[String, String], String] {
+    implicit object StringExtractor extends NamedValueExtractor[Map[String, String], String] {
       override def extract(a: Map[String, String], name: String): String = a(name)
     }
-    implicit object IntExtractor extends NamedExtractor[Map[String, String], Int] {
+    implicit object IntExtractor extends NamedValueExtractor[Map[String, String], Int] {
       override def extract(a: Map[String, String], name: String): Int = a(name).toInt
     }
-    implicit object DemoClassExtractor extends TypedValueExtractor[Map[String, String], DemoClass] {
+    implicit object DemoClassExtractor extends NamelessValueExtractor[Map[String, String], DemoClass] {
       override def extract(a: Map[String, String]): DemoClass = new DemoClass(a("demo class name"))
     }
   }
 
-  implicit val argumentExtractionStrategy = new ImplicitlyDiscoveredValueExtractors[Map[String, String]]
+  implicit val valueExtractionStrategy = new ImplicitlyDiscoveredValueExtractors[Map[String, String]]
   implicit val invocationStrategy = new DirectInvocation
 
   test("lifts inline function literals") {
@@ -37,10 +37,10 @@ class LiftTest extends FunSuite {
   test("invokes function values defined elsewhere, resorting to extracting arguments without parameter names") {
     val foo = (first: String, second: Int) => s"First: $first, second: $second"
 
-    implicit object UnnamedStringExtractor extends TypedValueExtractor[Map[String, String], String] {
+    implicit object UnnamedStringExtractor extends NamelessValueExtractor[Map[String, String], String] {
       override def extract(a: Map[String, String]): String = a("defaultString")
     }
-    implicit object UnnamedIntExtractor extends TypedValueExtractor[Map[String, String], Int] {
+    implicit object UnnamedIntExtractor extends NamelessValueExtractor[Map[String, String], Int] {
       override def extract(a: Map[String, String]): Int = a("defaultInt").toInt
     }
 

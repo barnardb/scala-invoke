@@ -26,7 +26,7 @@ import io.github.barnardb.scalainvoke.macroutil.OwnerChainCorrector
   * To call the methods on [[Lift]], you must mix in an [[ValueExtractionStrategy]] and an
   * [[InvocationStrategy]]. E.g.:
   * {{{
-  * implicit val argumentExtractionStrategy = new ImplicitArgumentExtractors[HttpRequest]
+  * implicit val valueExtractionStrategy = new ImplicitlyDiscoveredValueExtractors[HttpRequest]
   * implicit val invocationStrategy = new DirectInvocation
   * }}}
   *
@@ -39,17 +39,17 @@ import io.github.barnardb.scalainvoke.macroutil.OwnerChainCorrector
   *   final class Path(override val toString: String) extends AnyVal
   *   case class HttpRequest(path: Path, query: Map[String, String])
   *
-  *   implicit val argumentExtractionStrategy = new ImplicitlyDiscoveredValueExtractors[HttpRequest]
+  *   implicit val valueExtractionStrategy = new ImplicitlyDiscoveredValueExtractors[HttpRequest]
   *   implicit val invocationStrategy = new DeferredInvocation
   *
   *   implicit object PathExtractor extends ValueExtractor[HttpRequest, Path] {
   *     override def extract(request: HttpRequest): Path = request.path
   *     override def extract(request: HttpRequest, name: String): Path = request.path
   *   }
-  *   implicit object StringExtractor extends NamedExtractor[HttpRequest, String] {
+  *   implicit object StringExtractor extends NamedValueExtractor[HttpRequest, String] {
   *     override def extract(request: HttpRequest, name: String): String = request.query(name)
   *   }
-  *   implicit object DoubleExtractor extends NamedExtractor[HttpRequest, Double] {
+  *   implicit object DoubleExtractor extends NamedValueExtractor[HttpRequest, Double] {
   *     override def extract(request: HttpRequest, name: String): Double = request.query(name).toDouble
   *   }
   *
