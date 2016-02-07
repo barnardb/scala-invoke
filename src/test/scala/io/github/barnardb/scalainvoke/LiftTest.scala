@@ -15,12 +15,12 @@ class LiftTest extends FunSuite {
     implicit object IntExtractor extends NamedExtractor[Map[String, String], Int] {
       override def extract(a: Map[String, String], name: String): Int = a(name).toInt
     }
-    implicit object DemoClassExtractor extends UnnamedExtractor[Map[String, String], DemoClass] {
+    implicit object DemoClassExtractor extends TypedValueExtractor[Map[String, String], DemoClass] {
       override def extract(a: Map[String, String]): DemoClass = new DemoClass(a("demo class name"))
     }
   }
 
-  implicit val argumentExtractionStrategy = new ImplicitArgumentExtractors[Map[String, String]]
+  implicit val argumentExtractionStrategy = new ImplicitlyDiscoveredValueExtractors[Map[String, String]]
   implicit val invocationStrategy = new DirectInvocation
 
   test("lifts inline function literals") {
@@ -37,10 +37,10 @@ class LiftTest extends FunSuite {
   test("invokes function values defined elsewhere, resorting to extracting arguments without parameter names") {
     val foo = (first: String, second: Int) => s"First: $first, second: $second"
 
-    implicit object UnnamedStringExtractor extends UnnamedExtractor[Map[String, String], String] {
+    implicit object UnnamedStringExtractor extends TypedValueExtractor[Map[String, String], String] {
       override def extract(a: Map[String, String]): String = a("defaultString")
     }
-    implicit object UnnamedIntExtractor extends UnnamedExtractor[Map[String, String], Int] {
+    implicit object UnnamedIntExtractor extends TypedValueExtractor[Map[String, String], Int] {
       override def extract(a: Map[String, String]): Int = a("defaultInt").toInt
     }
 
@@ -246,10 +246,10 @@ class LiftTest extends FunSuite {
       def foo(first: String)(implicit second: String): String = s"[$id] First: $first, second: $second"
     }
 
-    implicit object NormalStringExtractor extends NormalExtractor[Map[String, String], String] {
+    implicit object NormalStringExtractor extends ExplicitValueExtractor[Map[String, String], String] {
       override def extract(a: Map[String, String], name: String): String = "explicit " + a(name)
     }
-    implicit object ImplicitStringExtractor extends ImplicitExtractor[Map[String, String], String] {
+    implicit object ImplicitStringExtractor extends ImplicitValueExtractor[Map[String, String], String] {
       override def extract(a: Map[String, String], name: String): String = "implicit " + a(name)
     }
 

@@ -8,7 +8,7 @@ class DeferredInvocationTest extends FunSuite {
     var value = init
   }
 
-  implicit val argumentExtractionStrategy = new ImplicitArgumentExtractors[Map[String, Var]]
+  implicit val argumentExtractionStrategy = new ImplicitlyDiscoveredValueExtractors[Map[String, Var]]
   implicit val invocationStrategy = new DeferredInvocation
 
   implicit object VarExtractor extends NamedExtractor[Map[String, Var], String] {
