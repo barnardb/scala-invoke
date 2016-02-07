@@ -7,22 +7,19 @@ object MethodLifter {
   class MacroImplementations(override val c: blackbox.Context) extends FunctionLifter.MacroImplementations(c) {
     import c.universe._
 
-    protected def liftedParameters[Target: WeakTypeTag](Environment: Type): Seq[Tree] =
-      Seq(q"target: ${weakTypeOf[Target]}", q"environment: $Environment")
-
-    protected def liftedInvocationTarget[Target: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy]): Tree =
-      q"target"
-
-    protected def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
+    def liftedFunctionType[Target: WeakTypeTag](Environment: Type, method: MethodSymbol): c.universe.Type =
       appliedType(symbolOf[(_, _) => _], weakTypeOf[Target], Environment, method.returnType)
 
+    def createMethodInvoker(Target: Type, Environment: Type, aes: Expr[ArgumentExtractionStrategy], invokeOnTarget: Tree => Tree) =
+      q"""(target: $Target, environment: $Environment) => ${invokeOnTarget(q"target")}"""
+
     protected def createLiftedMethod[Target: WeakTypeTag](aes: Expr[ArgumentExtractionStrategy], is: Expr[InvocationStrategy], method: MethodSymbol): Tree = {
-      implicit val Environment = aes.actualType.member(TypeName("Environment")).asType.typeSignatureIn(aes.actualType)
       require(method.owner == symbolOf[Target], s"Expected method owner type ${method.owner} == ${symbolOf[Target]}")
-      c.typecheck(
-        tree = q"""(..${liftedParameters[Target](Environment)}) => ${q"""${liftedInvocationTarget[Target](aes)}.$method(...${method.paramLists.map(_.map(extractParameter(aes, _)))})"""}""",
-        pt = liftedFunctionType[Target](Environment, method)
+      val Environment = aes.actualType.member(TypeName("Environment")).asType.typeSignatureIn(aes.actualType)
+      val invoker = createMethodInvoker(weakTypeOf[Target], Environment, aes,
+        target => q"""$target.$method(...${method.paramLists.map(_.map(extractParameter(aes, _)))})"""
       )
+      c.typecheck(invoker, pt = liftedFunctionType[Target](Environment, method))
     }
 
 
