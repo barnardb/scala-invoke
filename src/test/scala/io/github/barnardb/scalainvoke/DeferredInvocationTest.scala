@@ -10,9 +10,8 @@ class DeferredInvocationTest extends FunSuite {
 
   implicit val argumentExtractionStrategy = new ImplicitArgumentExtractors[Map[String, Var]]
   implicit val invocationStrategy = new DeferredInvocation
-  final val strategy = new FunctionLifter
 
-  implicit object VarExtractor extends Extractor[Map[String, Var], String] {
+  implicit object VarExtractor extends NamedExtractor[Map[String, Var], String] {
     override def extract(a: Map[String, Var], name: String): String = {
       println(s"extracting $name from $a")
       a(name).value
@@ -21,7 +20,7 @@ class DeferredInvocationTest extends FunSuite {
 
   test("lifted method application extracts parameters immediately but defers execution") {
     var stage = "lifting stage"
-    val lifted = strategy.lift((boxed: String) => s"param extracted during $boxed, evaluated during $stage")
+    val lifted = FunctionLifter.function((boxed: String) => s"param extracted during $boxed, evaluated during $stage")
 
     stage = "primary invocation stage"
     val box = new Var("primary invocation")

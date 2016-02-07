@@ -9,10 +9,10 @@ class FunctionLifterTest extends FunSuite {
   }
 
   object TestExtractors {
-    implicit object StringExtractor extends Extractor[Map[String, String], String] {
+    implicit object StringExtractor extends NamedExtractor[Map[String, String], String] {
       override def extract(a: Map[String, String], name: String): String = a(name)
     }
-    implicit object IntExtractor extends Extractor[Map[String, String], Int] {
+    implicit object IntExtractor extends NamedExtractor[Map[String, String], Int] {
       override def extract(a: Map[String, String], name: String): Int = a(name).toInt
     }
     implicit object DemoClassExtractor extends UnnamedExtractor[Map[String, String], DemoClass] {
@@ -22,11 +22,10 @@ class FunctionLifterTest extends FunSuite {
 
   implicit val argumentExtractionStrategy = new ImplicitArgumentExtractors[Map[String, String]]
   implicit val invocationStrategy = new DirectInvocation
-  final val strategy = new FunctionLifter
 
   test("lifts inline function literals") {
     import TestExtractors._
-    val invoker = strategy.lift((first: String, second: Int) => s"First: $first, second: $second")
+    val invoker = FunctionLifter.function((first: String, second: Int) => s"First: $first, second: $second")
 
     val context = Map("first" -> "a", "second" -> "42")
 
@@ -45,7 +44,7 @@ class FunctionLifterTest extends FunSuite {
       override def extract(a: Map[String, String]): Int = a("defaultInt").toInt
     }
 
-    val invoker = strategy.lift(foo)
+    val invoker = FunctionLifter.function(foo)
 
     assertResult("First: unfortunate, second: 7") {
       invoker(Map("first" -> "a", "second" -> "42", "defaultString" -> "unfortunate", "defaultInt" -> "7")): String
@@ -56,7 +55,7 @@ class FunctionLifterTest extends FunSuite {
     def localMethod(first: String, second: Int): String = s"First: $first, second: $second"
 
     import TestExtractors._
-    val invoker = strategy.lift(localMethod _)
+    val invoker = FunctionLifter.function(localMethod _)
 
     assertResult("First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
@@ -66,7 +65,7 @@ class FunctionLifterTest extends FunSuite {
   test("lifts eta-expanded methods on class instances") {
     import TestExtractors._
     val instance = new DemoClass("hi")
-    val invoker = strategy.lift(instance.foo _)
+    val invoker = FunctionLifter.function(instance.foo _)
 
     assertResult("[hi] First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
@@ -79,7 +78,7 @@ class FunctionLifterTest extends FunSuite {
     }
 
     import TestExtractors._
-    val invoker = strategy.lift(bar.foo _)
+    val invoker = FunctionLifter.function(bar.foo _)
 
     assertResult("First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
@@ -88,7 +87,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("lifts eta-expanded methods on inline class instances") {
     import TestExtractors._
-    val invoker = strategy.lift(new DemoClass("hi").foo _)
+    val invoker = FunctionLifter.function(new DemoClass("hi").foo _)
 
     assertResult("[hi] First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
@@ -98,7 +97,7 @@ class FunctionLifterTest extends FunSuite {
   test("lifts eta-expanded methods on class instances returned from method calls") {
     import TestExtractors._
     def instance = new DemoClass("hi")
-    val invoker = strategy.lift(instance.foo _)
+    val invoker = FunctionLifter.function(instance.foo _)
 
     assertResult("[hi] First: a, second: 42") {
       invoker(Map("first" -> "a", "second" -> "42")): String
@@ -107,7 +106,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("lifts function literals with type ascriptions") {
     import TestExtractors._
-    val invoker = strategy.lift(((x: String) => x): String => String)
+    val invoker = FunctionLifter.function(((x: String) => x): String => String)
 
     assertResult("X") {
       invoker(Map("x" -> "X")): String
@@ -116,7 +115,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("lifts function literals defined in a block that reference a lazy val in the block (i.e., prevents owner chain corruption without taking untypecheck shortcuts)") {
     import TestExtractors._
-    val invoker = strategy.lift({
+    val invoker = FunctionLifter.function({
       lazy val tricksy: String = "I'm forcing you to deal with owner chain corruption without resorting to untypecheck"
       (x: String) => x + tricksy
     })
@@ -128,7 +127,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("lifts class constructors") {
     import TestExtractors._
-    val invoker = strategy.liftConstructor[DemoClass]
+    val invoker = FunctionLifter.constructor[DemoClass]
 
     assertResult("[yays] First: a, second: 1") {
       invoker(Map("id" -> "yays")).foo("a", 1)
@@ -141,7 +140,7 @@ class FunctionLifterTest extends FunSuite {
     }
 
     import TestExtractors._
-    val invoker = strategy.liftConstructor[MultiConstruct]
+    val invoker = FunctionLifter.constructor[MultiConstruct]
 
     assertResult("A") {
       invoker(Map("a" -> "A", "b" -> "B", "c" -> "C")).a
@@ -154,7 +153,7 @@ class FunctionLifterTest extends FunSuite {
     }
 
     import TestExtractors._
-    val invoker = strategy.liftConstructor[MultiConstruct]
+    val invoker = FunctionLifter.constructor[MultiConstruct]
 
     assertResult("B C") {
       invoker(Map("a" -> "A", "b" -> "B", "c" -> "C")).a
@@ -163,7 +162,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by partial application") {
     import TestExtractors._
-    val invoker = strategy.liftMethod[DemoClass](_.foo _)
+    val invoker = FunctionLifter.method[DemoClass](_.foo _)
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new DemoClass("ha!"), Map("first" -> "a", "second" -> "42")): String
@@ -172,7 +171,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by partial application, with target extraction") {
     import TestExtractors._
-    val invoker = strategy.liftMethodAndTarget[DemoClass](_.foo _)
+    val invoker = FunctionLifter.methodAsFunction[DemoClass](_.foo _)
 
     assertResult("[Linley] First: a, second: 42") {
       invoker(Map("demo class name" -> "Linley", "first" -> "a", "second" -> "42")): String
@@ -181,7 +180,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by prototype lambda") {
     import TestExtractors._
-    val invoker = strategy.liftMethod[DemoClass](_.foo(_, _))
+    val invoker = FunctionLifter.method[DemoClass](_.foo(_, _))
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new DemoClass("ha!"), Map("first" -> "a", "second" -> "42")): String
@@ -190,7 +189,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by prototype lambda, with target extraction") {
     import TestExtractors._
-    val invoker = strategy.liftMethodAndTarget[DemoClass](_.foo(_, _))
+    val invoker = FunctionLifter.methodAsFunction[DemoClass](_.foo(_, _))
 
     assertResult("[Linley] First: a, second: 42") {
       invoker(Map("demo class name" -> "Linley", "first" -> "a", "second" -> "42")): String
@@ -199,7 +198,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by name") {
     import TestExtractors._
-    val invoker = strategy.liftMethod[DemoClass]("foo")
+    val invoker = FunctionLifter.method[DemoClass]("foo")
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new DemoClass("ha!"), Map("first" -> "a", "second" -> "42")): String
@@ -208,7 +207,7 @@ class FunctionLifterTest extends FunSuite {
 
   test("invokes methods denoted by name, with target extraction") {
     import TestExtractors._
-    val invoker = strategy.liftMethodAndTarget[DemoClass]("foo")
+    val invoker = FunctionLifter.methodAsFunction[DemoClass]("foo")
 
     assertResult("[Linley] First: a, second: 42") {
       invoker(Map("demo class name" -> "Linley", "first" -> "a", "second" -> "42")): String
@@ -222,7 +221,7 @@ class FunctionLifterTest extends FunSuite {
     }
 
     import TestExtractors._
-    val invoker = strategy.liftMethod[MultiFoo](_.foo(_: Int))
+    val invoker = FunctionLifter.method[MultiFoo](_.foo(_: Int))
 
     assertResult("3") {
       invoker(new MultiFoo, Map("value" -> "1")): String
@@ -235,7 +234,7 @@ class FunctionLifterTest extends FunSuite {
     }
 
     import TestExtractors._
-    val invoker = strategy.liftMethod[MultiArg](_.foo(_)(_))
+    val invoker = FunctionLifter.method[MultiArg](_.foo(_)(_))
 
     assertResult("[ha!] First: a, second: 42") {
       invoker(new MultiArg("ha!"), Map("first" -> "a", "second" -> "42")): String
@@ -247,14 +246,14 @@ class FunctionLifterTest extends FunSuite {
       def foo(first: String)(implicit second: String): String = s"[$id] First: $first, second: $second"
     }
 
-    implicit object ExplicitStringExtractor extends ExplicitExtractor[Map[String, String], String] {
+    implicit object NormalStringExtractor extends NormalExtractor[Map[String, String], String] {
       override def extract(a: Map[String, String], name: String): String = "explicit " + a(name)
     }
     implicit object ImplicitStringExtractor extends ImplicitExtractor[Map[String, String], String] {
       override def extract(a: Map[String, String], name: String): String = "implicit " + a(name)
     }
 
-    val invoker = strategy.liftMethod[DifferentPlicities](_.foo(_)(_))
+    val invoker = FunctionLifter.method[DifferentPlicities](_.foo(_)(_))
 
     assertResult("[ha!] First: explicit a, second: implicit b") {
       implicit val implicitString: String = "c"
